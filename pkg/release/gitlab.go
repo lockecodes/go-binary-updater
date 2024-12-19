@@ -8,35 +8,44 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"strconv"
 )
 
-const gitlabApiUrl = "https://gitlab.com/api/v4/projects/%d/releases"
-
-type FileConfig struct {
-	VersionedDirectoryName string `json:"versioned_directory_name"`
-	SourceBinaryName       string `json:"source_binary_name"`
-	BinaryName             string `json:"binary_name"`
-	CreateGlobalSymlink    bool   `json:"create_global_symlink"`
-}
+const gitlabApiUrl = "https://gitlab.com/api/v4/projects/%s/releases"
 
 type GitLabRelease struct {
-	ProjectId   int        `json:"project_id"`
-	ReleaseLink string     `json:"latest_release_link"`
-	Version     string     `json:"version"`
-	Config      FileConfig `json:"config"`
+	ProjectId   string               `json:"project_id"`
+	ReleaseLink string               `json:"latest_release_link"`
+	Version     string               `json:"version"`
+	Config      fileUtils.FileConfig `json:"config"`
+	BaseURL     string               // Added to allow overriding API URL for tests
 }
 
 func (r *GitLabRelease) getTempSourceArchivePath() string {
+	if r.Config.SourceArchivePath != "" {
+		return r.Config.SourceArchivePath
+	}
 	return path.Join("/tmp", fmt.Sprintf("binary-%s.tar.gz", r.Version))
 }
 
 func (r *GitLabRelease) GetApiUrl() (string, error) {
-	if r.ProjectId <= 0 {
-		return "", fmt.Errorf("invalid project ID: %d", r.ProjectId)
+	// Convert the string to an integer
+	projectId, err := strconv.Atoi(r.ProjectId)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return "", err
 	}
-	urlString := fmt.Sprintf(gitlabApiUrl, r.ProjectId)
 
-	return urlString, nil
+	if projectId <= 0 {
+		return "", fmt.Errorf("invalid project ID: %s", r.ProjectId)
+	}
+	if r.BaseURL == "" {
+		urlString := fmt.Sprintf(gitlabApiUrl, r.ProjectId)
+		return urlString, nil
+	}
+	// Construct the request URL
+	reqUrl := r.BaseURL + "/" + r.ProjectId + "/releases"
+	return reqUrl, nil
 }
 
 func (r *GitLabRelease) GetLatestRelease() error {
@@ -66,7 +75,7 @@ func (r *GitLabRelease) GetLatestRelease() error {
 
 	if len(responses) == 0 {
 		return fmt.Errorf(
-			"no GitLab releases found for project ID %d",
+			"no GitLab releases found for project ID %s",
 			r.ProjectId)
 	}
 
@@ -97,10 +106,10 @@ func (r *GitLabRelease) DownloadLatestRelease() error {
 }
 
 func (r *GitLabRelease) InstallLatestRelease() error {
-	return fileUtils.InstallBinary(r.getTempSourceArchivePath(), r.Config.VersionedDirectoryName, r.Config.SourceBinaryName, r.Config.BinaryName, r.Version, r.Config.CreateGlobalSymlink)
+	return fileUtils.InstallBinary(r.Config, r.Version)
 }
 
-func NewGitlabRelease(projectId int, fileConfig FileConfig) *GitLabRelease {
+func NewGitlabRelease(projectId string, fileConfig fileUtils.FileConfig) *GitLabRelease {
 	return &GitLabRelease{
 		ProjectId: projectId,
 		Config:    fileConfig,

@@ -10,6 +10,15 @@ import (
 	"path/filepath"
 )
 
+type FileConfig struct {
+	VersionedDirectoryName string `json:"versioned_directory_name"`
+	SourceBinaryName       string `json:"source_binary_name"`
+	BinaryName             string `json:"binary_name"`
+	CreateGlobalSymlink    bool   `json:"create_global_symlink"`
+	BaseBinaryDirectory    string `json:"base_binary_directory"`
+	SourceArchivePath      string `json:"source_archive_path"`
+}
+
 // FindBinary searches for a specific binary file in a given directory and its subdirectories.
 // Returns the absolute path to the binary if found, otherwise an error if the binary is not found or an issue occurs.
 func FindBinary(directory, binaryName string) (string, error) {
@@ -95,35 +104,28 @@ func DownloadFile(link string, destination string) error {
 }
 
 // InstallBinary extracts an archive and installs the binary into a versioned folder with a symlink.
-func InstallBinary(sourceArchivePath string, versionedDirectoryName string, sourceBinaryName string, binaryName string, version string, createGlobalSymlink bool) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %v", err)
-	}
-
-	// Define paths
-	baseDir := filepath.Join(homeDir, ".local", "bin")
-	versionDir := filepath.Join(baseDir, versionedDirectoryName, version)
-	localSymlinkPath := filepath.Join(baseDir, binaryName)
-	globalSymlinkPath := filepath.Join("/usr/local/bin", binaryName)
+func InstallBinary(fileConfig FileConfig, version string) error {
+	versionDir := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.VersionedDirectoryName, version)
+	localSymlinkPath := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.BinaryName)
+	globalSymlinkPath := filepath.Join("/usr/local/bin", fileConfig.BinaryName)
 
 	// Step 1: Extract the archive
 	handler := archiver.NewArchiveHandler()
-	fmt.Printf("Extracting %s...\n", sourceArchivePath)
-	if err := handler.ExtractArchive(sourceArchivePath, versionDir); err != nil {
+	fmt.Printf("Extracting %s...\n", fileConfig.SourceArchivePath)
+	if err := handler.ExtractArchive(fileConfig.SourceArchivePath, versionDir); err != nil {
 		return fmt.Errorf("failed to extract archive: %v", err)
 	}
 
 	// Step 2: Locate the binary file
 	fmt.Println("Locating the binary...")
-	binaryPath, err := FindBinary(versionDir, sourceBinaryName)
+	binaryPath, err := FindBinary(versionDir, fileConfig.SourceBinaryName)
 	if err != nil {
-		return fmt.Errorf("failed to locate binary %s: %v", sourceBinaryName, err)
+		return fmt.Errorf("failed to locate binary %s: %v", fileConfig.SourceBinaryName, err)
 	}
 
 	// Step 3: Move the binary to the versioned folder
 	fmt.Println("Installing the binary...")
-	finalBinaryPath := filepath.Join(versionDir, sourceBinaryName)
+	finalBinaryPath := filepath.Join(versionDir, fileConfig.SourceBinaryName)
 	if err := os.Rename(binaryPath, finalBinaryPath); err != nil {
 		return fmt.Errorf("failed to move binary to versioned directory: %v", err)
 	}
@@ -139,7 +141,7 @@ func InstallBinary(sourceArchivePath string, versionedDirectoryName string, sour
 		return fmt.Errorf("failed to update local symlink: %v", err)
 	}
 
-	if createGlobalSymlink {
+	if fileConfig.CreateGlobalSymlink {
 		// Step 5: Create/update the global symlink in /usr/local/bin
 		fmt.Println("Updating global symlink...")
 		// For now just output the command for the symlink. If the user already has

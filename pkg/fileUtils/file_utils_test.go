@@ -1,7 +1,10 @@
 package fileUtils
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 )
@@ -187,54 +190,101 @@ func TestDownloadFile(t *testing.T) {
 	_ = os.Remove("test.txt")
 }
 
-//func TestInstallBinary(t *testing.T) {
-//	tests := []struct {
-//		name                   string
-//		sourceArchivePath      string
-//		versionedDirectoryName string
-//		sourceBinaryName       string
-//		binaryName             string
-//		version                string
-//		createGlobalSymlink    bool
-//		expectError            bool
-//	}{
-//		{
-//			name:                   "SuccessfulInstall",
-//			sourceArchivePath:      "source.tar.gz",
-//			versionedDirectoryName: "test",
-//			sourceBinaryName:       "binary",
-//			binaryName:             "binary",
-//			version:                "1.0.0",
-//			createGlobalSymlink:    false,
-//			expectError:            false,
-//		},
-//		{
-//			name:                   "NonExistentArchive",
-//			sourceArchivePath:      "nonexistent.tar.gz",
-//			versionedDirectoryName: "test",
-//			sourceBinaryName:       "binary",
-//			binaryName:             "binary",
-//			version:                "1.0.0",
-//			createGlobalSymlink:    false,
-//			expectError:            true,
-//		},
-//		{
-//			name:                   "NonExistentBinary",
-//			sourceArchivePath:      "source.tar.gz",
-//			versionedDirectoryName: "test",
-//			sourceBinaryName:       "nonexistent",
-//			binaryName:             "binary",
-//			version:                "1.0.0",
-//			createGlobalSymlink:    false,
-//			expectError:            true,
-//		},
-//	}
-//	for _, tc := range tests {
-//		t.Run(tc.name, func(t *testing.T) {
-//			err := InstallBinary(tc.sourceArchivePath, tc.versionedDirectoryName, tc.sourceBinaryName, tc.binaryName, tc.version, tc.createGlobalSymlink)
-//			if (err != nil) != tc.expectError {
-//				t.Errorf("InstallBinary() error = %v, expectError %v", err, tc.expectError)
-//			}
-//		})
-//	}
-//}
+func createTestArchive(filePath, binaryName string) error {
+	// Create the .tar.gz file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Create a gzip writer
+	gzipWriter := gzip.NewWriter(file)
+	defer gzipWriter.Close()
+
+	// Create a tar writer
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	// Create a test binary file in the archive
+	binaryContent := []byte("#!/bin/bash\necho 'Hello World'\n")
+	header := &tar.Header{
+		Name: binaryName,
+		Mode: 0755,
+		Size: int64(len(binaryContent)),
+	}
+	if err := tarWriter.WriteHeader(header); err != nil {
+		return err
+	}
+	if _, err := tarWriter.Write(binaryContent); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func TestInstallBinary(t *testing.T) {
+	tempDir := t.TempDir()
+	println(tempDir)
+
+	// Create the test source.tar.gz file
+	sourceArchivePath := path.Join(tempDir, "source.tar.gz")
+	if err := createTestArchive(sourceArchivePath, "binary"); err != nil {
+		t.Fatalf("Failed to create test archive: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		version     string
+		fileConfig  FileConfig
+		expectError bool
+	}{
+		{
+			name:    "SuccessfulInstall",
+			version: "1.0.0",
+			fileConfig: FileConfig{
+				SourceArchivePath:      path.Join(tempDir, "source.tar.gz"),
+				BaseBinaryDirectory:    tempDir,
+				VersionedDirectoryName: "test",
+				SourceBinaryName:       "binary",
+				BinaryName:             "binary",
+				CreateGlobalSymlink:    false,
+			},
+			expectError: false,
+		},
+		{
+			name:    "NonExistentArchive",
+			version: "1.0.0",
+			fileConfig: FileConfig{
+				SourceArchivePath:      path.Join(tempDir, "nonexistent.tar.gz"),
+				BaseBinaryDirectory:    tempDir,
+				VersionedDirectoryName: "test",
+				SourceBinaryName:       "binary",
+				BinaryName:             "binary",
+				CreateGlobalSymlink:    false,
+			},
+			expectError: true,
+		},
+		{
+			name:    "NonExistentBinary",
+			version: "1.0.0",
+			fileConfig: FileConfig{
+				SourceArchivePath:      path.Join(tempDir, "source.tar.gz"),
+				BaseBinaryDirectory:    tempDir,
+				VersionedDirectoryName: "test",
+				SourceBinaryName:       "nonexistent",
+				BinaryName:             "binary",
+				CreateGlobalSymlink:    false,
+			},
+			expectError: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := InstallBinary(tc.fileConfig, tc.version)
+			if (err != nil) != tc.expectError {
+				t.Errorf("InstallBinary() error = %v, expectError %v", err, tc.expectError)
+			}
+		})
+	}
+}
