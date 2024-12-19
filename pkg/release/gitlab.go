@@ -12,22 +12,25 @@ import (
 
 const gitlabApiUrl = "https://gitlab.com/api/v4/projects/%d/releases"
 
-type GitlabRelease struct {
-	ProjectId   int    `json:"project_id"`
-	ReleaseLink string `json:"latest_release_link"`
-	Version     string `json:"version"`
-	// File path vars
+type FileConfig struct {
 	VersionedDirectoryName string `json:"versioned_directory_name"`
 	SourceBinaryName       string `json:"source_binary_name"`
 	BinaryName             string `json:"binary_name"`
 	CreateGlobalSymlink    bool   `json:"create_global_symlink"`
 }
 
-func (r *GitlabRelease) getTempSourceArchivePath() string {
+type GitLabRelease struct {
+	ProjectId   int        `json:"project_id"`
+	ReleaseLink string     `json:"latest_release_link"`
+	Version     string     `json:"version"`
+	Config      FileConfig `json:"config"`
+}
+
+func (r *GitLabRelease) getTempSourceArchivePath() string {
 	return path.Join("/tmp", fmt.Sprintf("binary-%s", r.Version))
 }
 
-func (r *GitlabRelease) GetApiUrl() (string, error) {
+func (r *GitLabRelease) GetApiUrl() (string, error) {
 	if r.ProjectId <= 0 {
 		return "", fmt.Errorf("invalid project ID: %d", r.ProjectId)
 	}
@@ -36,7 +39,7 @@ func (r *GitlabRelease) GetApiUrl() (string, error) {
 	return urlString, nil
 }
 
-func (r *GitlabRelease) GetLatestRelease() error {
+func (r *GitLabRelease) GetLatestRelease() error {
 	log.Println("Fetching latest release from GitLab")
 	apiURL, err := r.GetApiUrl()
 	if err != nil {
@@ -76,7 +79,7 @@ func (r *GitlabRelease) GetLatestRelease() error {
 	return nil
 }
 
-func (r *GitlabRelease) DownloadLatestRelease() error {
+func (r *GitLabRelease) DownloadLatestRelease() error {
 	err := r.GetLatestRelease()
 	if err != nil {
 		return fmt.Errorf("error getting latest release from GitLab: %w", err)
@@ -93,18 +96,13 @@ func (r *GitlabRelease) DownloadLatestRelease() error {
 	return nil
 }
 
-func (r *GitlabRelease) InstallLatestRelease() error {
-	return fileUtils.InstallBinary(r.getTempSourceArchivePath(), r.VersionedDirectoryName, r.SourceBinaryName, r.BinaryName, r.Version, r.CreateGlobalSymlink)
+func (r *GitLabRelease) InstallLatestRelease() error {
+	return fileUtils.InstallBinary(r.getTempSourceArchivePath(), r.Config.VersionedDirectoryName, r.Config.SourceBinaryName, r.Config.BinaryName, r.Version, r.Config.CreateGlobalSymlink)
 }
 
-func NewGitlabRelease(projectId int, releaseLink string, version string, versionedDirectoryName string, sourceBinaryName, binaryName string, createGlobalSymlink bool) *GitlabRelease {
-	return &GitlabRelease{
-		ProjectId:              projectId,
-		ReleaseLink:            releaseLink,
-		Version:                version,
-		VersionedDirectoryName: versionedDirectoryName,
-		SourceBinaryName:       sourceBinaryName,
-		BinaryName:             binaryName,
-		CreateGlobalSymlink:    createGlobalSymlink,
+func NewGitlabRelease(projectId int, fileConfig FileConfig) *GitLabRelease {
+	return &GitLabRelease{
+		ProjectId: projectId,
+		Config:    fileConfig,
 	}
 }
