@@ -27,7 +27,7 @@ type GitLabRelease struct {
 }
 
 func (r *GitLabRelease) getTempSourceArchivePath() string {
-	return path.Join("/tmp", fmt.Sprintf("binary-%s", r.Version))
+	return path.Join("/tmp", fmt.Sprintf("binary-%s.tar.gz", r.Version))
 }
 
 func (r *GitLabRelease) GetApiUrl() (string, error) {
