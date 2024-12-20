@@ -96,7 +96,7 @@ func (r *GitLabRelease) DownloadLatestRelease() error {
 	if r.Version == "" || r.ReleaseLink == "" {
 		return fmt.Errorf("could not find a valid release to download")
 	}
-	err = fileUtils.DownloadFile(r.ReleaseLink, r.getTempSourceArchivePath())
+	err = fileUtils.DownloadFile(r.ReleaseLink, r.Config.SourceArchivePath)
 	if err != nil {
 		return fmt.Errorf(
 			"error downloading latest release from GitLab: %w",
