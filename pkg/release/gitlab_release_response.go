@@ -30,14 +30,38 @@ func (g *GitlabReleaseResponse) GetReleaseLink() string {
 	arch := MapArch(runtime.GOARCH)
 
 	title := cases.Title(language.AmericanEnglish)
-	searchKey := fmt.Sprintf("%s_%s", title.String(runtimeOS), arch)
+	primarySearchKey := fmt.Sprintf("%s_%s", title.String(runtimeOS), arch)
 
-	releaseLink := ""
+	// Try exact match first
 	for _, link := range g.Assets.Links {
-		if strings.Contains(link.Name, searchKey) {
-			releaseLink = link.DirectAssetUrl
-			break
+		if strings.Contains(link.Name, primarySearchKey) {
+			return link.DirectAssetUrl
 		}
 	}
-	return releaseLink
+
+	// Try with architecture variants for better compatibility
+	archVariants := GetArchVariants(runtime.GOARCH)
+	for _, archVariant := range archVariants {
+		searchKey := fmt.Sprintf("%s_%s", title.String(runtimeOS), archVariant)
+		for _, link := range g.Assets.Links {
+			if strings.Contains(link.Name, searchKey) {
+				return link.DirectAssetUrl
+			}
+		}
+	}
+
+	// Try case-insensitive matching as fallback
+	lowerOS := strings.ToLower(runtimeOS)
+	lowerArch := strings.ToLower(arch)
+	fallbackSearchKey := fmt.Sprintf("%s_%s", lowerOS, lowerArch)
+
+	for _, link := range g.Assets.Links {
+		linkNameLower := strings.ToLower(link.Name)
+		if strings.Contains(linkNameLower, fallbackSearchKey) {
+			return link.DirectAssetUrl
+		}
+	}
+
+	// No suitable asset found
+	return ""
 }
