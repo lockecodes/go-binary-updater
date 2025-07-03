@@ -17,6 +17,12 @@ type FileConfig struct {
 	CreateGlobalSymlink    bool   `json:"create_global_symlink"`
 	BaseBinaryDirectory    string `json:"base_binary_directory"`
 	SourceArchivePath      string `json:"source_archive_path"`
+
+	// Enhanced configuration for flexible asset handling
+	IsDirectBinary         bool   `json:"is_direct_binary"`         // True if the downloaded asset is a direct binary, not an archive
+	ProjectName            string `json:"project_name"`             // Project name for asset matching (e.g., "k0s", "kubectl")
+	AssetMatchingStrategy  string `json:"asset_matching_strategy"`  // Strategy for asset matching: "standard", "flexible", "custom"
+	CustomAssetPatterns    []string `json:"custom_asset_patterns"`  // Custom regex patterns for asset matching
 }
 
 // FindBinary searches for a specific binary file in a given directory and its subdirectories.
@@ -104,7 +110,58 @@ func DownloadFile(link string, destination string) error {
 }
 
 // InstallBinary extracts an archive and installs the binary into a versioned folder with a symlink.
+// If IsDirectBinary is true, it handles direct binary files instead of archives.
 func InstallBinary(fileConfig FileConfig, version string) error {
+	if fileConfig.IsDirectBinary {
+		return InstallDirectBinary(fileConfig, version)
+	}
+	return InstallArchivedBinary(fileConfig, version)
+}
+
+// InstallDirectBinary installs a direct binary file (not archived) into a versioned folder with a symlink.
+func InstallDirectBinary(fileConfig FileConfig, version string) error {
+	versionDir := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.VersionedDirectoryName, version)
+	localSymlinkPath := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.BinaryName)
+	globalSymlinkPath := filepath.Join("/usr/local/bin", fileConfig.BinaryName)
+
+	// Step 1: Create version directory
+	if err := os.MkdirAll(versionDir, 0755); err != nil {
+		return fmt.Errorf("failed to create version directory: %v", err)
+	}
+
+	// Step 2: Move the binary to the versioned folder
+	fmt.Println("Installing the binary...")
+	finalBinaryPath := filepath.Join(versionDir, fileConfig.BinaryName)
+
+	// Copy the downloaded binary to the final location
+	if err := copyFile(fileConfig.SourceArchivePath, finalBinaryPath); err != nil {
+		return fmt.Errorf("failed to copy binary to versioned directory: %v", err)
+	}
+
+	// Make the binary executable
+	if err := os.Chmod(finalBinaryPath, 0755); err != nil {
+		return fmt.Errorf("failed to make binary executable: %v", err)
+	}
+
+	// Step 3: Create/update the symlink in the base directory
+	fmt.Println("Updating local symlink...")
+	if err := UpdateSymlink(finalBinaryPath, localSymlinkPath); err != nil {
+		return fmt.Errorf("failed to update local symlink: %v", err)
+	}
+
+	if fileConfig.CreateGlobalSymlink {
+		// Step 4: Create/update the global symlink in /usr/local/bin
+		fmt.Println("Updating global symlink...")
+		fmt.Println("You must either ensure that ~/.local/bin is in your path or run the following command:")
+		fmt.Printf("sudo ln -s %s %s\n", localSymlinkPath, globalSymlinkPath)
+	}
+
+	fmt.Println("Installation successful!")
+	return nil
+}
+
+// InstallArchivedBinary extracts an archive and installs the binary into a versioned folder with a symlink.
+func InstallArchivedBinary(fileConfig FileConfig, version string) error {
 	versionDir := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.VersionedDirectoryName, version)
 	localSymlinkPath := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.BinaryName)
 	globalSymlinkPath := filepath.Join("/usr/local/bin", fileConfig.BinaryName)
@@ -165,4 +222,26 @@ func FileExists(path string) bool {
 	}
 	// Ensure it's a file, not a directory or other type
 	return err == nil && !info.IsDir()
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %v", err)
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %v", err)
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file: %v", err)
+	}
+
+	return nil
 }
