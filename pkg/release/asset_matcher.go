@@ -34,12 +34,13 @@ type AssetMatchingConfig struct {
 	FileExtensions     []string              `json:"file_extensions"`     // Expected file extensions
 
 	// Enhanced filtering and CDN support
-	ExcludePatterns  []string          `json:"exclude_patterns"`  // Patterns to explicitly exclude (airgap, signatures)
-	PriorityPatterns []string          `json:"priority_patterns"` // Patterns that get higher priority scores
-	CDNBaseURL       string            `json:"cdn_base_url"`      // Base URL for CDN downloads (e.g., get.helm.sh)
-	CDNPattern       string            `json:"cdn_pattern"`       // URL pattern for CDN downloads with {version}, {os}, {arch} placeholders
-	CDNVersionFormat string            `json:"cdn_version_format"` // Version format for CDN: "as-is", "with-v", "without-v"
-	ExtractionConfig *ExtractionConfig `json:"extraction_config"` // Configuration for complex archive extraction
+	ExcludePatterns     []string                 `json:"exclude_patterns"`     // Patterns to explicitly exclude (airgap, signatures)
+	PriorityPatterns    []string                 `json:"priority_patterns"`    // Patterns that get higher priority scores
+	CDNBaseURL          string                   `json:"cdn_base_url"`         // Base URL for CDN downloads (e.g., get.helm.sh)
+	CDNPattern          string                   `json:"cdn_pattern"`          // URL pattern for CDN downloads with {version}, {os}, {arch} placeholders
+	CDNVersionFormat    string                   `json:"cdn_version_format"`   // Version format for CDN: "as-is", "with-v", "without-v"
+	CDNArchMapping      map[string]string        `json:"cdn_arch_mapping"`     // Custom architecture mapping for this CDN
+	ExtractionConfig    *ExtractionConfig        `json:"extraction_config"`    // Configuration for complex archive extraction
 }
 
 // ExtractionConfig configures how binaries are extracted from archives

@@ -125,7 +125,18 @@ func (g *GithubRelease) downloadFromCDN() error {
 		}
 	}
 
-	cdnDownloader := NewCDNDownloader(g.AssetMatchingConfig.CDNBaseURL, g.AssetMatchingConfig.CDNPattern)
+	// Create CDN downloader with custom architecture mapping if configured
+	var cdnDownloader *CDNDownloader
+	if g.AssetMatchingConfig.CDNArchMapping != nil {
+		cdnDownloader = NewCDNDownloaderWithArchMapping(
+			g.AssetMatchingConfig.CDNBaseURL,
+			g.AssetMatchingConfig.CDNPattern,
+			g.AssetMatchingConfig.CDNArchMapping,
+		)
+	} else {
+		cdnDownloader = NewCDNDownloader(g.AssetMatchingConfig.CDNBaseURL, g.AssetMatchingConfig.CDNPattern)
+	}
+
 	versionFormat := g.AssetMatchingConfig.CDNVersionFormat
 	if versionFormat == "" {
 		versionFormat = "as-is" // Default to as-is if not specified

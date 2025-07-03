@@ -91,13 +91,15 @@ func exampleHelmWithCDN() {
 	fmt.Printf("  CDN Base URL: %s\n", assetConfig.CDNBaseURL)
 	fmt.Printf("  CDN Pattern: %s\n", assetConfig.CDNPattern)
 	fmt.Printf("  CDN Version Format: %s\n", assetConfig.CDNVersionFormat)
+	fmt.Printf("  CDN Architecture Mapping: %v\n", assetConfig.CDNArchMapping)
 	fmt.Printf("  Extraction Config: %+v\n", assetConfig.ExtractionConfig)
 	
 	// In a real scenario, you would call:
 	// err := githubRelease.DownloadLatestRelease() // Downloads from get.helm.sh
 	// err = githubRelease.InstallLatestRelease()   // Extracts from os-arch subdirectory
-	
+
 	fmt.Println("  ✓ Configured to download from Helm's CDN instead of GitHub releases")
+	fmt.Println("  ✓ Architecture mapping: amd64 preserved (not converted to x86_64)")
 }
 
 // exampleKubectlWithGoogleCDN demonstrates kubectl using Google's CDN
@@ -131,13 +133,15 @@ func exampleKubectlWithGoogleCDN() {
 	fmt.Printf("  CDN Base URL: %s\n", assetConfig.CDNBaseURL)
 	fmt.Printf("  CDN Pattern: %s\n", assetConfig.CDNPattern)
 	fmt.Printf("  CDN Version Format: %s\n", assetConfig.CDNVersionFormat)
+	fmt.Printf("  CDN Architecture Mapping: %v\n", assetConfig.CDNArchMapping)
 	fmt.Printf("  Direct Binary: %t\n", assetConfig.IsDirectBinary)
 	
 	// In a real scenario, you would call:
 	// err := githubRelease.DownloadLatestRelease() // Downloads from Google's CDN
 	// err = githubRelease.InstallLatestRelease()   // Direct binary installation
-	
+
 	fmt.Println("  ✓ Configured to download from Google's Kubernetes CDN")
+	fmt.Println("  ✓ Architecture mapping: amd64 preserved (not converted to x86_64)")
 }
 
 // exampleTerraformWithHybridStrategy demonstrates Terraform with hybrid strategy
@@ -259,6 +263,60 @@ func exampleCustomConfiguration() {
 	fmt.Printf("  Custom priority patterns: %v\n", assetConfig.PriorityPatterns)
 	
 	fmt.Println("  ✓ Custom configuration with specific filtering rules")
+}
+
+// exampleCustomArchitectureMapping demonstrates configurable architecture mapping
+func exampleCustomArchitectureMapping() {
+	fmt.Println("\n7. Custom Architecture Mapping Example")
+	fmt.Println("-------------------------------------")
+
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "myapp",
+		BinaryName:             "myapp",
+		CreateLocalSymlink:     true,
+		CreateGlobalSymlink:    false,
+		BaseBinaryDirectory:    "/home/user/.local/bin",
+		SourceArchivePath:      "/tmp/myapp-latest.tar.gz",
+
+		// Custom CDN configuration
+		IsDirectBinary:         false,
+		ProjectName:            "myapp",
+		AssetMatchingStrategy:  "cdn",
+	}
+
+	// Create custom asset matching configuration with specific architecture mapping
+	assetConfig := release.DefaultAssetMatchingConfig()
+	assetConfig.Strategy = release.CDNStrategy
+	assetConfig.CDNBaseURL = "https://custom-cdn.example.com/"
+	assetConfig.CDNPattern = "myapp-{version}-{os}-{arch}.tar.gz"
+	assetConfig.CDNVersionFormat = "with-v"
+
+	// Custom architecture mapping for this specific CDN
+	assetConfig.CDNArchMapping = map[string]string{
+		"amd64":   "x86_64",   // This CDN uses x86_64 instead of amd64
+		"x86_64":  "x86_64",   // Preserve x86_64
+		"arm64":   "aarch64",  // This CDN uses aarch64 instead of arm64
+		"aarch64": "aarch64",  // Preserve aarch64
+		"386":     "i386",     // This CDN uses i386 instead of 386
+		"i386":    "i386",     // Preserve i386
+	}
+
+	githubRelease := release.NewGithubRelease("myorg/myapp", config)
+	githubRelease.AssetMatchingConfig = assetConfig
+
+	fmt.Printf("Configuration:\n")
+	fmt.Printf("  Strategy: CDN with custom architecture mapping\n")
+	fmt.Printf("  CDN Base URL: %s\n", assetConfig.CDNBaseURL)
+	fmt.Printf("  CDN Pattern: %s\n", assetConfig.CDNPattern)
+	fmt.Printf("  CDN Version Format: %s\n", assetConfig.CDNVersionFormat)
+	fmt.Printf("  Custom Architecture Mapping:\n")
+	for input, output := range assetConfig.CDNArchMapping {
+		fmt.Printf("    %s -> %s\n", input, output)
+	}
+
+	fmt.Println("  ✓ Custom CDN with specific architecture naming requirements")
+	fmt.Println("  ✓ Flexible mapping supports any CDN architecture format")
 }
 
 // exampleErrorHandling demonstrates comprehensive error handling

@@ -12,9 +12,10 @@ import (
 
 // CDNDownloader handles downloading binaries from external CDNs
 type CDNDownloader struct {
-	BaseURL    string
-	Pattern    string
-	HTTPClient *http.Client
+	BaseURL     string
+	Pattern     string
+	ArchMapping map[string]string // Custom architecture mapping for this CDN
+	HTTPClient  *http.Client
 }
 
 // NewCDNDownloader creates a new CDN downloader with the given configuration
@@ -22,6 +23,18 @@ func NewCDNDownloader(baseURL, pattern string) *CDNDownloader {
 	return &CDNDownloader{
 		BaseURL: baseURL,
 		Pattern: pattern,
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Minute, // Long timeout for large binaries
+		},
+	}
+}
+
+// NewCDNDownloaderWithArchMapping creates a new CDN downloader with custom architecture mapping
+func NewCDNDownloaderWithArchMapping(baseURL, pattern string, archMapping map[string]string) *CDNDownloader {
+	return &CDNDownloader{
+		BaseURL:     baseURL,
+		Pattern:     pattern,
+		ArchMapping: archMapping,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Minute, // Long timeout for large binaries
 		},
@@ -40,10 +53,13 @@ func (c *CDNDownloader) ConstructURLWithVersionFormat(version, os, arch, version
 	// Format version according to the specified format
 	versionToUse := FormatVersionForCDN(version, versionFormat)
 
+	// Map architecture for CDN-specific requirements
+	archToUse := c.mapArchForCDN(arch)
+
 	// Replace placeholders
 	url = strings.ReplaceAll(url, "{version}", versionToUse)
 	url = strings.ReplaceAll(url, "{os}", os)
-	url = strings.ReplaceAll(url, "{arch}", arch)
+	url = strings.ReplaceAll(url, "{arch}", archToUse)
 
 	return url
 }
@@ -77,7 +93,7 @@ func (c *CDNDownloader) Download(version, destinationPath string) error {
 func (c *CDNDownloader) DownloadWithVersionFormat(version, destinationPath, versionFormat string) error {
 	// Use current platform for CDN downloads
 	osName := runtime.GOOS
-	archName := MapArch(runtime.GOARCH)
+	archName := c.mapArchForCDN(runtime.GOARCH)
 
 	// Map OS names for CDN compatibility
 	switch osName {
@@ -130,6 +146,20 @@ func (c *CDNDownloader) DownloadWithVersionFormat(version, destinationPath, vers
 	return nil
 }
 
+// mapArchForCDN maps architecture names using configurable mapping or fallback to standard mapping
+func (c *CDNDownloader) mapArchForCDN(arch string) string {
+	// If custom architecture mapping is configured, use it
+	if c.ArchMapping != nil {
+		normalizedArch := strings.ToLower(strings.TrimSpace(arch))
+		if mappedArch, exists := c.ArchMapping[normalizedArch]; exists {
+			return mappedArch
+		}
+	}
+
+	// Fall back to standard MapArch function
+	return MapArch(arch)
+}
+
 // GetHelmCDNConfig returns configuration for Helm's CDN
 func GetHelmCDNConfig() AssetMatchingConfig {
 	config := DefaultAssetMatchingConfig()
@@ -139,6 +169,24 @@ func GetHelmCDNConfig() AssetMatchingConfig {
 	config.CDNVersionFormat = "with-v"  // Helm CDN requires 'v' prefix (e.g., v3.18.3)
 	config.IsDirectBinary = false
 	config.ProjectName = "helm"
+
+	// Helm CDN uses specific architecture naming (amd64, not x86_64)
+	config.CDNArchMapping = map[string]string{
+		"amd64":   "amd64",  // Preserve amd64 (don't convert to x86_64)
+		"x86_64":  "amd64",  // Convert x86_64 to amd64
+		"x64":     "amd64",  // Convert x64 to amd64
+		"arm64":   "arm64",  // Preserve arm64
+		"aarch64": "arm64",  // Convert aarch64 to arm64
+		"arm":     "arm",    // Preserve arm
+		"armv6":   "arm",    // Convert armv6 to arm
+		"armv7":   "arm",    // Convert armv7 to arm
+		"armhf":   "arm",    // Convert armhf to arm
+		"386":     "386",    // Preserve 386
+		"i386":    "386",    // Convert i386 to 386
+		"i686":    "386",    // Convert i686 to 386
+		"x86":     "386",    // Convert x86 to 386
+	}
+
 	config.ExtractionConfig = &ExtractionConfig{
 		BinaryPath: "{os}-{arch}/helm", // Helm extracts to os-arch subdirectory
 	}
@@ -154,6 +202,18 @@ func GetKubectlCDNConfig() AssetMatchingConfig {
 	config.CDNVersionFormat = "as-is"  // kubectl CDN uses version as-is (e.g., v1.28.0)
 	config.IsDirectBinary = true
 	config.ProjectName = "kubectl"
+
+	// kubectl CDN uses specific architecture naming (amd64, not x86_64)
+	config.CDNArchMapping = map[string]string{
+		"amd64":   "amd64",  // Preserve amd64 (don't convert to x86_64)
+		"x86_64":  "amd64",  // Convert x86_64 to amd64
+		"x64":     "amd64",  // Convert x64 to amd64
+		"arm64":   "arm64",  // Preserve arm64
+		"aarch64": "arm64",  // Convert aarch64 to arm64
+		"arm":     "arm",    // Preserve arm
+		"386":     "386",    // Preserve 386
+	}
+
 	// Add .exe extension for Windows
 	if runtime.GOOS == "windows" {
 		config.CDNPattern += ".exe"
