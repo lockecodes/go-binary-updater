@@ -217,7 +217,18 @@ func (r *GitLabRelease) downloadFromCDN() error {
 		}
 	}
 
-	cdnDownloader := NewCDNDownloader(r.AssetMatchingConfig.CDNBaseURL, r.AssetMatchingConfig.CDNPattern)
+	// Create CDN downloader with custom architecture mapping if configured
+	var cdnDownloader *CDNDownloader
+	if r.AssetMatchingConfig.CDNArchMapping != nil {
+		cdnDownloader = NewCDNDownloaderWithArchMapping(
+			r.AssetMatchingConfig.CDNBaseURL,
+			r.AssetMatchingConfig.CDNPattern,
+			r.AssetMatchingConfig.CDNArchMapping,
+		)
+	} else {
+		cdnDownloader = NewCDNDownloader(r.AssetMatchingConfig.CDNBaseURL, r.AssetMatchingConfig.CDNPattern)
+	}
+
 	versionFormat := r.AssetMatchingConfig.CDNVersionFormat
 	if versionFormat == "" {
 		versionFormat = "as-is" // Default to as-is if not specified

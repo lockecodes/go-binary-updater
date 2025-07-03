@@ -213,13 +213,159 @@ func TestHelmCDNVersionFormat(t *testing.T) {
 		t.Errorf("Expected Helm CDN version format to be 'with-v', got '%s'", config.CDNVersionFormat)
 	}
 
-	// Test URL construction
-	downloader := NewCDNDownloader(config.CDNBaseURL, config.CDNPattern)
+	// Test URL construction with architecture mapping
+	downloader := NewCDNDownloaderWithArchMapping(config.CDNBaseURL, config.CDNPattern, config.CDNArchMapping)
 	url := downloader.ConstructURLWithVersionFormat("3.18.3", "linux", "amd64", config.CDNVersionFormat)
 
 	expected := "https://get.helm.sh/helm-v3.18.3-linux-amd64.tar.gz"
 	if url != expected {
 		t.Errorf("Expected URL %s, got %s", expected, url)
+	}
+}
+
+func TestHelmCDNArchitectureMapping(t *testing.T) {
+	// Test that Helm CDN uses correct architecture format (amd64, not x86_64)
+	config := GetHelmCDNConfig()
+	downloader := NewCDNDownloaderWithArchMapping(config.CDNBaseURL, config.CDNPattern, config.CDNArchMapping)
+
+	testCases := []struct {
+		inputArch    string
+		expectedArch string
+	}{
+		{"amd64", "amd64"},     // Should preserve amd64 for Helm
+		{"x86_64", "amd64"},    // Should convert x86_64 to amd64 for Helm
+		{"x64", "amd64"},       // Should convert x64 to amd64 for Helm
+		{"arm64", "arm64"},     // Should preserve arm64
+		{"aarch64", "arm64"},   // Should convert aarch64 to arm64
+		{"arm", "arm"},         // Should preserve arm
+		{"386", "386"},         // Should preserve 386
+		{"i386", "386"},        // Should convert i386 to 386
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("Helm_arch_%s", tc.inputArch), func(t *testing.T) {
+			mappedArch := downloader.mapArchForCDN(tc.inputArch)
+			if mappedArch != tc.expectedArch {
+				t.Errorf("Helm CDN mapArchForCDN(%s) = %s, want %s", tc.inputArch, mappedArch, tc.expectedArch)
+			}
+
+			// Test URL construction with the mapped architecture
+			url := downloader.ConstructURLWithVersionFormat("v3.18.3", "linux", tc.inputArch, "with-v")
+			expectedURL := fmt.Sprintf("https://get.helm.sh/helm-v3.18.3-linux-%s.tar.gz", tc.expectedArch)
+			if url != expectedURL {
+				t.Errorf("Expected Helm URL %s, got %s", expectedURL, url)
+			}
+		})
+	}
+}
+
+func TestKubectlCDNArchitectureMapping(t *testing.T) {
+	// Test that kubectl CDN uses correct architecture format (amd64, not x86_64)
+	config := GetKubectlCDNConfig()
+	downloader := NewCDNDownloaderWithArchMapping(config.CDNBaseURL, config.CDNPattern, config.CDNArchMapping)
+
+	testCases := []struct {
+		inputArch    string
+		expectedArch string
+	}{
+		{"amd64", "amd64"},     // Should preserve amd64 for kubectl
+		{"x86_64", "amd64"},    // Should convert x86_64 to amd64 for kubectl
+		{"x64", "amd64"},       // Should convert x64 to amd64 for kubectl
+		{"arm64", "arm64"},     // Should preserve arm64
+		{"aarch64", "arm64"},   // Should convert aarch64 to arm64
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("kubectl_arch_%s", tc.inputArch), func(t *testing.T) {
+			mappedArch := downloader.mapArchForCDN(tc.inputArch)
+			if mappedArch != tc.expectedArch {
+				t.Errorf("kubectl CDN mapArchForCDN(%s) = %s, want %s", tc.inputArch, mappedArch, tc.expectedArch)
+			}
+
+			// Test URL construction with the mapped architecture
+			url := downloader.ConstructURLWithVersionFormat("v1.28.0", "linux", tc.inputArch, "as-is")
+			expectedURL := fmt.Sprintf("https://dl.k8s.io/release/v1.28.0/bin/linux/%s/kubectl", tc.expectedArch)
+			if url != expectedURL {
+				t.Errorf("Expected kubectl URL %s, got %s", expectedURL, url)
+			}
+		})
+	}
+}
+
+func TestOtherCDNArchitectureMapping(t *testing.T) {
+	// Test that other CDNs use standard MapArch function
+	downloader := NewCDNDownloader("https://releases.hashicorp.com/terraform/", "{version}/terraform_{version}_{os}_{arch}.zip")
+
+	// For non-Helm/kubectl CDNs, should use standard MapArch which converts amd64 to x86_64
+	mappedArch := downloader.mapArchForCDN("amd64")
+	expectedArch := "x86_64" // Standard MapArch converts amd64 to x86_64
+
+	if mappedArch != expectedArch {
+		t.Errorf("Other CDN mapArchForCDN(amd64) = %s, want %s", mappedArch, expectedArch)
+	}
+}
+
+func TestRealWorldHelmCDNURL(t *testing.T) {
+	// Test the real-world scenario: runtime.GOARCH = "amd64" should generate correct Helm URL
+	config := GetHelmCDNConfig()
+	downloader := NewCDNDownloaderWithArchMapping(config.CDNBaseURL, config.CDNPattern, config.CDNArchMapping)
+
+	// Simulate the real download process with runtime.GOARCH = "amd64"
+	runtimeArch := "amd64"  // This is what runtime.GOARCH returns on amd64 systems
+
+	// Test that the CDN downloader correctly maps amd64 to amd64 for Helm (not x86_64)
+	mappedArch := downloader.mapArchForCDN(runtimeArch)
+	if mappedArch != "amd64" {
+		t.Errorf("Helm CDN should preserve amd64 architecture, got %s", mappedArch)
+	}
+
+	// Test the complete URL construction process
+	url := downloader.ConstructURLWithVersionFormat("3.18.3", "linux", runtimeArch, config.CDNVersionFormat)
+	expectedURL := "https://get.helm.sh/helm-v3.18.3-linux-amd64.tar.gz"
+
+	if url != expectedURL {
+		t.Errorf("Real-world Helm CDN URL construction failed")
+		t.Errorf("Expected: %s", expectedURL)
+		t.Errorf("Got:      %s", url)
+		t.Errorf("This means the architecture mapping fix is not working correctly")
+	}
+
+	// Verify this matches the actual Helm CDN format
+	t.Logf("✅ Helm CDN URL correctly generated: %s", url)
+	t.Logf("✅ Architecture correctly mapped: %s -> %s", runtimeArch, mappedArch)
+}
+
+func TestConfigurableArchitectureMapping(t *testing.T) {
+	// Test that custom architecture mapping can be configured for any CDN
+	customArchMapping := map[string]string{
+		"amd64":  "x86_64",  // Custom mapping: amd64 -> x86_64
+		"arm64":  "aarch64", // Custom mapping: arm64 -> aarch64
+		"386":    "i386",    // Custom mapping: 386 -> i386
+	}
+
+	downloader := NewCDNDownloaderWithArchMapping(
+		"https://custom-cdn.example.com/",
+		"binary-{version}-{os}-{arch}.tar.gz",
+		customArchMapping,
+	)
+
+	testCases := []struct {
+		inputArch    string
+		expectedArch string
+	}{
+		{"amd64", "x86_64"},   // Should use custom mapping
+		{"arm64", "aarch64"},  // Should use custom mapping
+		{"386", "i386"},       // Should use custom mapping
+		{"unknown", "unknown"}, // Should fall back to MapArch (which returns input for unknown)
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("custom_arch_%s", tc.inputArch), func(t *testing.T) {
+			mappedArch := downloader.mapArchForCDN(tc.inputArch)
+			if mappedArch != tc.expectedArch {
+				t.Errorf("Custom CDN mapArchForCDN(%s) = %s, want %s", tc.inputArch, mappedArch, tc.expectedArch)
+			}
+		})
 	}
 }
 

@@ -91,6 +91,41 @@ The `CDNVersionFormat` field controls how version strings are formatted for CDN 
 
 Example: `https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz`
 
+### CDN-Specific Architecture Mapping
+
+Different CDNs have different architecture naming conventions. The library uses configurable architecture mapping to handle these differences:
+
+#### Configurable Architecture Mapping
+Each CDN configuration can specify custom architecture mappings via the `CDNArchMapping` field:
+
+```go
+config.CDNArchMapping = map[string]string{
+    "amd64":   "amd64",  // Preserve amd64 (don't convert to x86_64)
+    "x86_64":  "amd64",  // Convert x86_64 to amd64
+    "x64":     "amd64",  // Convert x64 to amd64
+    "arm64":   "arm64",  // Preserve arm64
+    "aarch64": "arm64",  // Convert aarch64 to arm64
+}
+```
+
+#### Preset CDN Mappings
+- **Helm and kubectl**: Use "amd64" format (not "x86_64")
+- **Terraform and others**: Fall back to standard MapArch function (amd64 → x86_64)
+
+#### Custom CDN Support
+Any CDN can be configured with custom architecture mappings:
+
+```go
+customConfig := release.AssetMatchingConfig{
+    CDNArchMapping: map[string]string{
+        "amd64": "x86_64",   // Custom mapping for this CDN
+        "arm64": "aarch64",  // Custom mapping for this CDN
+    },
+}
+```
+
+This ensures that each CDN receives the exact architecture format it expects.
+
 ### Supported CDN Providers
 
 #### Helm (get.helm.sh)
@@ -99,6 +134,7 @@ config := release.GetHelmCDNConfig()
 // CDN Base URL: https://get.helm.sh/
 // CDN Pattern: helm-{version}-{os}-{arch}.tar.gz
 // CDN Version Format: "with-v" (ensures v3.18.3 format)
+// Architecture Mapping: amd64 preserved (not converted to x86_64)
 // Extraction: Binary located in {os}-{arch}/helm subdirectory
 ```
 
@@ -108,6 +144,7 @@ config := release.GetKubectlCDNConfig()
 // CDN Base URL: https://dl.k8s.io/release/
 // CDN Pattern: {version}/bin/{os}/{arch}/kubectl
 // CDN Version Format: "as-is" (uses version exactly as provided)
+// Architecture Mapping: amd64 preserved (not converted to x86_64)
 // Direct Binary: No extraction required
 ```
 
