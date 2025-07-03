@@ -210,12 +210,55 @@ func (r *GitLabRelease) DownloadLatestRelease() error {
 // downloadFromCDN downloads binary from CDN instead of GitLab releases
 func (r *GitLabRelease) downloadFromCDN() error {
 	if r.Version == "" {
-		// For CDN downloads, we still need version info, so get it from GitLab
-		err := r.GetLatestRelease()
-		if err != nil {
-			return fmt.Errorf("error getting version information from GitLab: %w", err)
+		// Try to discover version from CDN first, fall back to GitLab if needed
+		cdnDownloader := NewCDNDownloader(r.AssetMatchingConfig.CDNBaseURL, r.AssetMatchingConfig.CDNPattern)
+
+		version, err := cdnDownloader.TryDiscoverLatestVersion()
+		if err == nil {
+			r.Version = version
+			fmt.Printf("Discovered latest version from CDN: %s\n", version)
+		} else {
+			// Fall back to GitLab for version information
+			fmt.Printf("CDN version discovery failed (%v), falling back to GitLab for version info\n", err)
+			err := r.GetLatestRelease()
+			if err != nil {
+				return fmt.Errorf("error getting version information from GitLab: %w", err)
+			}
 		}
 	}
+
+	// Create CDN downloader with custom architecture mapping if configured
+	var cdnDownloader *CDNDownloader
+	if r.AssetMatchingConfig.CDNArchMapping != nil {
+		cdnDownloader = NewCDNDownloaderWithArchMapping(
+			r.AssetMatchingConfig.CDNBaseURL,
+			r.AssetMatchingConfig.CDNPattern,
+			r.AssetMatchingConfig.CDNArchMapping,
+		)
+	} else {
+		cdnDownloader = NewCDNDownloader(r.AssetMatchingConfig.CDNBaseURL, r.AssetMatchingConfig.CDNPattern)
+	}
+
+	versionFormat := r.AssetMatchingConfig.CDNVersionFormat
+	if versionFormat == "" {
+		versionFormat = "as-is" // Default to as-is if not specified
+	}
+	return cdnDownloader.DownloadWithVersionFormat(r.Version, r.Config.SourceArchivePath, versionFormat)
+}
+
+// DownloadCDNVersion downloads a specific version from CDN without GitLab API calls
+func (r *GitLabRelease) DownloadCDNVersion(version string) error {
+	if r.AssetMatchingConfig.Strategy != CDNStrategy && r.AssetMatchingConfig.Strategy != HybridStrategy {
+		return fmt.Errorf("CDN download requires CDNStrategy or HybridStrategy, got %v", r.AssetMatchingConfig.Strategy)
+	}
+
+	if r.AssetMatchingConfig.CDNBaseURL == "" || r.AssetMatchingConfig.CDNPattern == "" {
+		return fmt.Errorf("CDN configuration is incomplete: CDNBaseURL=%s, CDNPattern=%s",
+			r.AssetMatchingConfig.CDNBaseURL, r.AssetMatchingConfig.CDNPattern)
+	}
+
+	// Set the version directly to avoid GitLab API calls
+	r.Version = version
 
 	// Create CDN downloader with custom architecture mapping if configured
 	var cdnDownloader *CDNDownloader

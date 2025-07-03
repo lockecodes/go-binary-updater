@@ -285,6 +285,51 @@ func GetDockerConfig() AssetMatchingConfig {
 	return config
 }
 
+// TryDiscoverLatestVersion attempts to discover the latest version from CDN-specific endpoints
+// This is a best-effort approach that works for some CDNs but may not work for all
+func (c *CDNDownloader) TryDiscoverLatestVersion() (string, error) {
+	// For now, this is a placeholder that could be extended to support specific CDN version discovery
+	// Different CDNs have different ways to discover latest versions:
+	// - Helm: Could check https://api.github.com/repos/helm/helm/releases/latest
+	// - kubectl: Could check https://dl.k8s.io/release/stable.txt
+	// - Terraform: Could parse https://releases.hashicorp.com/terraform/
+
+	// For kubectl, we can try the stable.txt endpoint
+	if strings.Contains(c.BaseURL, "dl.k8s.io") {
+		return c.discoverKubectlLatestVersion()
+	}
+
+	// For other CDNs, we don't have a generic way to discover versions
+	return "", fmt.Errorf("version discovery not supported for this CDN: %s", c.BaseURL)
+}
+
+// discoverKubectlLatestVersion discovers the latest kubectl version from the Kubernetes CDN
+func (c *CDNDownloader) discoverKubectlLatestVersion() (string, error) {
+	stableURL := "https://dl.k8s.io/release/stable.txt"
+
+	resp, err := c.HTTPClient.Get(stableURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to get kubectl stable version: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("kubectl stable version endpoint returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read kubectl stable version response: %v", err)
+	}
+
+	version := strings.TrimSpace(string(body))
+	if version == "" {
+		return "", fmt.Errorf("empty version returned from kubectl stable endpoint")
+	}
+
+	return version, nil
+}
+
 // ValidateCDNConfig validates that a CDN configuration is properly set up
 func ValidateCDNConfig(config AssetMatchingConfig) error {
 	if config.Strategy == CDNStrategy || config.Strategy == HybridStrategy {
