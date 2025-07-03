@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 type FileConfig struct {
@@ -38,6 +40,12 @@ type InstallationInfo struct {
 	VersionedPath       string `json:"versioned_path"`        // Path to binary in versioned directory
 	LocalSymlinkCreated bool   `json:"local_symlink_created"` // Whether local symlink was successfully created
 	GlobalSymlinkNeeded bool   `json:"global_symlink_needed"` // Whether global symlink creation was requested
+}
+
+// ExtractionConfig configures how binaries are extracted from archives
+type ExtractionConfig struct {
+	StripComponents int    `json:"strip_components"` // Number of directory components to strip (like tar --strip-components)
+	BinaryPath      string `json:"binary_path"`      // Specific path to binary within archive (e.g., "linux-amd64/helm")
 }
 
 // DefaultFileConfig returns a FileConfig with sensible defaults that preserve symlink-first behavior
@@ -298,6 +306,11 @@ func InstallDirectBinary(fileConfig FileConfig, version string) error {
 
 // InstallArchivedBinary extracts an archive and installs the binary into a versioned folder with enhanced symlink control.
 func InstallArchivedBinary(fileConfig FileConfig, version string) error {
+	return InstallArchivedBinaryWithConfig(fileConfig, version, nil)
+}
+
+// InstallArchivedBinaryWithConfig extracts an archive with enhanced configuration and installs the binary
+func InstallArchivedBinaryWithConfig(fileConfig FileConfig, version string, extractionConfig *ExtractionConfig) error {
 	// Apply defaults for backward compatibility
 	config := fileConfig
 	if config.CreateLocalSymlink == false && config.CreateGlobalSymlink == false {
@@ -314,25 +327,56 @@ func InstallArchivedBinary(fileConfig FileConfig, version string) error {
 		return fmt.Errorf("InstallArchivedBinary called but IsDirectBinary is true - this indicates a configuration error")
 	}
 
-	// Step 1: Extract the archive
+	// Step 1: Extract the archive with enhanced configuration
 	handler := archiver.NewArchiveHandler()
 	fmt.Printf("Extracting %s...\n", config.SourceArchivePath)
-	if err := handler.ExtractArchive(config.SourceArchivePath, versionDir); err != nil {
+
+	// Convert our ExtractionConfig to archiver.ExtractionConfig if needed
+	var archiverConfig *archiver.ExtractionConfig
+	if extractionConfig != nil {
+		archiverConfig = &archiver.ExtractionConfig{
+			StripComponents: extractionConfig.StripComponents,
+			BinaryPath:      extractionConfig.BinaryPath,
+		}
+	}
+
+	if err := handler.ExtractArchiveWithConfig(config.SourceArchivePath, versionDir, archiverConfig); err != nil {
 		return fmt.Errorf("failed to extract archive: %v", err)
 	}
 
-	// Step 2: Locate the binary file
+	// Step 2: Locate the binary file (with enhanced path handling)
 	fmt.Println("Locating the binary...")
-	binaryPath, err := FindBinary(versionDir, config.SourceBinaryName)
-	if err != nil {
-		return fmt.Errorf("failed to locate binary %s: %v", config.SourceBinaryName, err)
+	var binaryPath string
+	var err error
+
+	if extractionConfig != nil && extractionConfig.BinaryPath != "" {
+		// Use specific binary path from extraction config
+		specificPath := extractionConfig.BinaryPath
+		// Replace placeholders in binary path
+		specificPath = strings.ReplaceAll(specificPath, "{os}", runtime.GOOS)
+		// Note: MapArch is in release package, we'll need to handle this differently
+		// For now, use runtime.GOARCH directly
+		specificPath = strings.ReplaceAll(specificPath, "{arch}", runtime.GOARCH)
+
+		binaryPath = filepath.Join(versionDir, specificPath)
+		if !FileExists(binaryPath) {
+			return fmt.Errorf("binary not found at specified path: %s", binaryPath)
+		}
+	} else {
+		// Use standard binary finding logic
+		binaryPath, err = FindBinary(versionDir, config.SourceBinaryName)
+		if err != nil {
+			return fmt.Errorf("failed to locate binary %s: %v", config.SourceBinaryName, err)
+		}
 	}
 
 	// Step 3: Move the binary to the expected location
 	fmt.Println("Installing the binary...")
 	finalBinaryPath := filepath.Join(versionDir, config.BinaryName)
-	if err := os.Rename(binaryPath, finalBinaryPath); err != nil {
-		return fmt.Errorf("failed to move binary to versioned directory: %v", err)
+	if binaryPath != finalBinaryPath {
+		if err := os.Rename(binaryPath, finalBinaryPath); err != nil {
+			return fmt.Errorf("failed to move binary to versioned directory: %v", err)
+		}
 	}
 
 	// Make the binary executable

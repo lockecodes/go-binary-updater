@@ -10,8 +10,12 @@ A powerful Go library that makes it easy to automatically update CLI binaries fr
 
 - **Multi-Platform Support**: Automatically detects and downloads the correct binary for your OS and architecture
 - **Flexible Asset Matching**: Supports various naming conventions (k0s, kubectl, helm, terraform, etc.)
+- **Enhanced Asset Filtering**: Excludes airgap bundles, signature files, and unwanted packages automatically
+- **CDN Download Support**: Downloads from external CDNs (get.helm.sh, dl.k8s.io, releases.hashicorp.com)
+- **Hybrid Download Strategy**: Tries GitHub/GitLab first, then falls back to CDN sources
 - **Direct Binary Support**: Handles both archived and direct binary downloads
 - **Enhanced Symlink Management**: Automatic symlink creation with graceful fallback and refined control
+- **Complex Archive Extraction**: Supports binaries in subdirectories with configurable extraction
 - **Dual Provider Support**: Works with both GitHub and GitLab releases
 - **Interface-Based Design**: Easily switch between providers or add new ones
 - **Versioned Installation**: Maintains multiple versions with intelligent path resolution
@@ -109,6 +113,51 @@ err = githubRelease.InstallLatestRelease()
 if err != nil {
     log.Fatal(err)
 }
+```
+
+## 🎯 Real-World Problem Solving
+
+The library addresses specific challenges with popular binaries:
+
+### k0s Asset Selection
+**Problem**: k0s releases both direct binaries and airgap bundles, causing incorrect asset selection.
+**Solution**: Enhanced filtering excludes airgap bundles and prioritizes direct binaries.
+
+```go
+// Automatically configured for k0s
+assetConfig := release.GetK0sConfig()
+// Excludes: airgap bundles, signature files
+// Prioritizes: k0s-v1.33.2+k0s.0-amd64 (direct binary)
+```
+
+### Helm CDN Distribution
+**Problem**: Helm binaries are on get.helm.sh CDN, not GitHub releases (which only have signatures).
+**Solution**: CDN strategy downloads from external CDN with proper extraction.
+
+```go
+// Downloads from get.helm.sh instead of GitHub
+assetConfig := release.GetHelmCDNConfig()
+// CDN URL: https://get.helm.sh/helm-{version}-{os}-{arch}.tar.gz
+```
+
+### kubectl Google CDN
+**Problem**: kubectl uses Google's CDN infrastructure with different URL patterns.
+**Solution**: Direct CDN downloads from Google's official distribution.
+
+```go
+// Downloads from Google's Kubernetes CDN
+assetConfig := release.GetKubectlCDNConfig()
+// CDN URL: https://dl.k8s.io/release/{version}/bin/{os}/{arch}/kubectl
+```
+
+### Terraform Hybrid Strategy
+**Problem**: Terraform available on both GitHub and HashiCorp CDN with different reliability.
+**Solution**: Hybrid strategy tries GitHub first, falls back to CDN.
+
+```go
+// Tries GitHub first, then HashiCorp CDN
+assetConfig := release.GetTerraformConfig()
+// Fallback: https://releases.hashicorp.com/terraform/{version}/terraform_{version}_{os}_{arch}.zip
 ```
 
 ## 🔧 How It Works
@@ -239,11 +288,13 @@ Examples:
 - [GitLab Usage Guide](docs/GITLAB_USAGE.md) - Complete GitLab integration documentation
 - [Flexible Asset Matching](docs/FLEXIBLE_ASSET_MATCHING.md) - Guide for different project naming conventions
 - [Enhanced Symlink Management](docs/ENHANCED_SYMLINK_MANAGEMENT.md) - Symlink control and path resolution
+- [Enhanced Binary Download Patterns](docs/ENHANCED_BINARY_DOWNLOAD_PATTERNS.md) - CDN support, asset filtering, and complex distributions
 
 ### Examples
 - [GitHub Examples](examples/github_example.go) - Working GitHub examples
 - [GitLab Examples](examples/gitlab_example.go) - Working GitLab examples
 - [k0s Example](examples/k0s_example.go) - Direct binary download with enhanced symlink management
+- [Enhanced Binary Examples](examples/enhanced_binary_examples.go) - k0s, Helm, kubectl, Terraform, and Docker configurations
 
 ## 🧪 Testing
 

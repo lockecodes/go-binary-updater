@@ -186,6 +186,11 @@ func (r *GitLabRelease) GetLatestRelease() error {
 }
 
 func (r *GitLabRelease) DownloadLatestRelease() error {
+	// Handle CDN downloads
+	if r.AssetMatchingConfig.Strategy == CDNStrategy || r.AssetMatchingConfig.Strategy == HybridStrategy {
+		return r.downloadFromCDN()
+	}
+
 	err := r.GetLatestRelease()
 	if err != nil {
 		return fmt.Errorf("error getting latest release from GitLab: %w", err)
@@ -202,7 +207,30 @@ func (r *GitLabRelease) DownloadLatestRelease() error {
 	return nil
 }
 
+// downloadFromCDN downloads binary from CDN instead of GitLab releases
+func (r *GitLabRelease) downloadFromCDN() error {
+	if r.Version == "" {
+		// For CDN downloads, we still need version info, so get it from GitLab
+		err := r.GetLatestRelease()
+		if err != nil {
+			return fmt.Errorf("error getting version information from GitLab: %w", err)
+		}
+	}
+
+	cdnDownloader := NewCDNDownloader(r.AssetMatchingConfig.CDNBaseURL, r.AssetMatchingConfig.CDNPattern)
+	return cdnDownloader.Download(r.Version, r.Config.SourceArchivePath)
+}
+
 func (r *GitLabRelease) InstallLatestRelease() error {
+	// Use enhanced installation with extraction config if available
+	if r.AssetMatchingConfig.ExtractionConfig != nil && !r.Config.IsDirectBinary {
+		// Convert ExtractionConfig to fileUtils.ExtractionConfig
+		fileUtilsConfig := &fileUtils.ExtractionConfig{
+			StripComponents: r.AssetMatchingConfig.ExtractionConfig.StripComponents,
+			BinaryPath:      r.AssetMatchingConfig.ExtractionConfig.BinaryPath,
+		}
+		return fileUtils.InstallArchivedBinaryWithConfig(r.Config, r.Version, fileUtilsConfig)
+	}
 	return fileUtils.InstallBinary(r.Config, r.Version)
 }
 

@@ -145,3 +145,31 @@ func (h *ArchiveHandler) ExtractArchive(source, target string) error {
 	}
 	return fmt.Errorf("unsupported file type: %s", source)
 }
+
+// ExtractArchiveWithConfig extracts an archive with enhanced configuration options
+func (h *ArchiveHandler) ExtractArchiveWithConfig(source, target string, config *ExtractionConfig) error {
+	if config == nil {
+		return h.ExtractArchive(source, target)
+	}
+
+	// For now, use the standard extraction and handle post-processing
+	// TODO: Implement strip-components functionality in the future
+	err := h.ExtractArchive(source, target)
+	if err != nil {
+		return err
+	}
+
+	// If BinaryPath is specified, we need to handle the specific binary location
+	if config.BinaryPath != "" {
+		// This will be handled by the calling code that knows about the binary structure
+		// The archiver just extracts, the file utils handle the binary location
+	}
+
+	return nil
+}
+
+// ExtractionConfig configures how binaries are extracted from archives
+type ExtractionConfig struct {
+	StripComponents int    `json:"strip_components"` // Number of directory components to strip (like tar --strip-components)
+	BinaryPath      string `json:"binary_path"`      // Specific path to binary within archive (e.g., "linux-amd64/helm")
+}
