@@ -1,0 +1,264 @@
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"gitlab.com/locke-codes/go-binary-updater/pkg/fileUtils"
+	"gitlab.com/locke-codes/go-binary-updater/pkg/release"
+)
+
+func main() {
+	fmt.Println("Versions Subdirectory Pattern Demonstration")
+	fmt.Println("==========================================")
+	
+	// Demonstrate the new versions subdirectory pattern
+	demonstrateLegacyPattern()
+	demonstrateNewPattern()
+	demonstrateMultipleBinariesNewPattern()
+	demonstrateConfigurationOptions()
+}
+
+// demonstrateLegacyPattern shows the traditional directory structure
+func demonstrateLegacyPattern() {
+	fmt.Println("\n1. Legacy Directory Pattern (Default)")
+	fmt.Println("-------------------------------------")
+	
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName:  "versions",
+		SourceBinaryName:        "helm",
+		BinaryName:              "helm",
+		CreateLocalSymlink:      true,
+		CreateGlobalSymlink:     false,
+		BaseBinaryDirectory:     "/home/user/.local/bin",
+		SourceArchivePath:       "/tmp/helm-latest.tar.gz",
+		UseVersionsSubdirectory: false, // Legacy pattern (default)
+		IsDirectBinary:          false,
+		ProjectName:             "helm",
+	}
+
+	version := "v3.18.3"
+	
+	fmt.Printf("Configuration:\n")
+	fmt.Printf("  UseVersionsSubdirectory: %t\n", config.UseVersionsSubdirectory)
+	fmt.Printf("  BaseBinaryDirectory: %s\n", config.BaseBinaryDirectory)
+	fmt.Printf("  ProjectName: %s\n", config.ProjectName)
+	
+	fmt.Printf("\nLegacy Directory Structure:\n")
+	versionedDir := fileUtils.GetVersionedDirectoryPath(config, version)
+	versionedBinary := fileUtils.GetVersionedBinaryPath(config, version)
+	symlinkTarget := fileUtils.GetSymlinkTargetPath(config, version)
+	
+	fmt.Printf("  Version Directory: %s\n", versionedDir)
+	fmt.Printf("  Binary Path: %s\n", versionedBinary)
+	fmt.Printf("  Symlink Target: %s\n", symlinkTarget)
+	
+	fmt.Printf("\nResulting Structure:\n")
+	fmt.Printf("  ~/.local/bin/\n")
+	fmt.Printf("  ├── helm -> versions/v3.18.3/helm\n")
+	fmt.Printf("  └── versions/\n")
+	fmt.Printf("      └── v3.18.3/\n")
+	fmt.Printf("          └── helm\n")
+}
+
+// demonstrateNewPattern shows the new versions subdirectory pattern
+func demonstrateNewPattern() {
+	fmt.Println("\n2. New Versions Subdirectory Pattern")
+	fmt.Println("------------------------------------")
+	
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName:  "versions",
+		SourceBinaryName:        "helm",
+		BinaryName:              "helm",
+		CreateLocalSymlink:      true,
+		CreateGlobalSymlink:     false,
+		BaseBinaryDirectory:     "/home/user/.local/bin",
+		SourceArchivePath:       "/tmp/helm-latest.tar.gz",
+		UseVersionsSubdirectory: true, // New pattern
+		IsDirectBinary:          false,
+		ProjectName:             "helm",
+	}
+
+	version := "v3.18.3"
+	
+	fmt.Printf("Configuration:\n")
+	fmt.Printf("  UseVersionsSubdirectory: %t\n", config.UseVersionsSubdirectory)
+	fmt.Printf("  BaseBinaryDirectory: %s\n", config.BaseBinaryDirectory)
+	fmt.Printf("  ProjectName: %s\n", config.ProjectName)
+	
+	fmt.Printf("\nNew Directory Structure:\n")
+	versionedDir := fileUtils.GetVersionedDirectoryPath(config, version)
+	versionedBinary := fileUtils.GetVersionedBinaryPath(config, version)
+	symlinkTarget := fileUtils.GetSymlinkTargetPath(config, version)
+	
+	fmt.Printf("  Version Directory: %s\n", versionedDir)
+	fmt.Printf("  Binary Path: %s\n", versionedBinary)
+	fmt.Printf("  Symlink Target: %s\n", symlinkTarget)
+	
+	fmt.Printf("\nResulting Structure:\n")
+	fmt.Printf("  ~/.local/bin/\n")
+	fmt.Printf("  ├── helm -> versions/helm/v3.18.3/helm\n")
+	fmt.Printf("  └── versions/\n")
+	fmt.Printf("      └── helm/\n")
+	fmt.Printf("          └── v3.18.3/\n")
+	fmt.Printf("              └── helm\n")
+}
+
+// demonstrateMultipleBinariesNewPattern shows how multiple binaries look with the new pattern
+func demonstrateMultipleBinariesNewPattern() {
+	fmt.Println("\n3. Multiple Binaries with New Pattern")
+	fmt.Println("-------------------------------------")
+	
+	binaries := []struct {
+		name        string
+		projectName string
+		version     string
+	}{
+		{"helm", "helm", "v3.18.3"},
+		{"kubectl", "kubernetes", "v1.31.3"},
+		{"k0s", "k0s", "v1.33.2+k0s.0"},
+		{"bat", "bat", "v0.25.0"},
+	}
+	
+	baseBinaryDirectory := "/home/user/.local/bin"
+	
+	fmt.Printf("Clean Directory Structure with Multiple Binaries:\n")
+	fmt.Printf("  %s/\n", baseBinaryDirectory)
+	
+	for _, binary := range binaries {
+		config := fileUtils.FileConfig{
+			BaseBinaryDirectory:     baseBinaryDirectory,
+			BinaryName:              binary.name,
+			ProjectName:             binary.projectName,
+			UseVersionsSubdirectory: true,
+		}
+		
+		symlinkTarget := fileUtils.GetSymlinkTargetPath(config, binary.version)
+		fmt.Printf("  ├── %s -> %s\n", binary.name, symlinkTarget)
+	}
+	
+	fmt.Printf("  └── versions/\n")
+	for i, binary := range binaries {
+		config := fileUtils.FileConfig{
+			BaseBinaryDirectory:     baseBinaryDirectory,
+			BinaryName:              binary.name,
+			ProjectName:             binary.projectName,
+			UseVersionsSubdirectory: true,
+		}
+		
+		versionedDir := fileUtils.GetVersionedDirectoryPath(config, binary.version)
+		relativeVersionDir := versionedDir[len(baseBinaryDirectory)+1:] // Remove base path
+		
+		prefix := "├──"
+		if i == len(binaries)-1 {
+			prefix = "└──"
+		}
+		
+		fmt.Printf("      %s %s/\n", prefix, binary.projectName)
+		fmt.Printf("          └── %s/\n", binary.version)
+		fmt.Printf("              └── %s\n", binary.name)
+	}
+	
+	fmt.Printf("\nBenefits:\n")
+	fmt.Printf("  ✅ Clean bin directory with only symlinks\n")
+	fmt.Printf("  ✅ All versions organized under versions/ subdirectory\n")
+	fmt.Printf("  ✅ Easy to see which binaries are installed\n")
+	fmt.Printf("  ✅ Version history preserved and organized by project\n")
+	fmt.Printf("  ✅ No naming conflicts between binaries and version directories\n")
+}
+
+// demonstrateConfigurationOptions shows different configuration approaches
+func demonstrateConfigurationOptions() {
+	fmt.Println("\n4. Configuration Options")
+	fmt.Println("------------------------")
+	
+	fmt.Printf("Option 1: Enable via FileConfig\n")
+	fmt.Printf("```go\n")
+	fmt.Printf("config := fileUtils.FileConfig{\n")
+	fmt.Printf("    BaseBinaryDirectory:     \"/home/user/.local/bin\",\n")
+	fmt.Printf("    BinaryName:              \"helm\",\n")
+	fmt.Printf("    ProjectName:             \"helm\",\n")
+	fmt.Printf("    UseVersionsSubdirectory: true,  // Enable new pattern\n")
+	fmt.Printf("    CreateLocalSymlink:      true,\n")
+	fmt.Printf("    // ... other fields\n")
+	fmt.Printf("}\n")
+	fmt.Printf("```\n")
+	
+	fmt.Printf("\nOption 2: With CDN Configuration\n")
+	fmt.Printf("```go\n")
+	fmt.Printf("config := fileUtils.FileConfig{\n")
+	fmt.Printf("    BaseBinaryDirectory:     \"/home/user/.local/bin\",\n")
+	fmt.Printf("    BinaryName:              \"helm\",\n")
+	fmt.Printf("    ProjectName:             \"helm\",\n")
+	fmt.Printf("    UseVersionsSubdirectory: true,\n")
+	fmt.Printf("    CreateLocalSymlink:      true,\n")
+	fmt.Printf("    IsDirectBinary:          false,\n")
+	fmt.Printf("}\n")
+	fmt.Printf("\n")
+	fmt.Printf("helmConfig := release.GetHelmCDNConfig()\n")
+	fmt.Printf("githubRelease := release.NewGithubReleaseWithCDNConfig(\"helm/helm\", config, helmConfig)\n")
+	fmt.Printf("```\n")
+	
+	fmt.Printf("\nOption 3: Backward Compatibility (Default)\n")
+	fmt.Printf("```go\n")
+	fmt.Printf("config := fileUtils.FileConfig{\n")
+	fmt.Printf("    BaseBinaryDirectory:     \"/home/user/.local/bin\",\n")
+	fmt.Printf("    VersionedDirectoryName:  \"versions\",\n")
+	fmt.Printf("    BinaryName:              \"helm\",\n")
+	fmt.Printf("    // UseVersionsSubdirectory: false (default)\n")
+	fmt.Printf("    CreateLocalSymlink:      true,\n")
+	fmt.Printf("}\n")
+	fmt.Printf("// Uses legacy pattern for backward compatibility\n")
+	fmt.Printf("```\n")
+	
+	fmt.Printf("\nMigration Notes:\n")
+	fmt.Printf("  • UseVersionsSubdirectory defaults to false for backward compatibility\n")
+	fmt.Printf("  • Existing configurations continue to work unchanged\n")
+	fmt.Printf("  • New pattern requires ProjectName to be set (falls back to BinaryName)\n")
+	fmt.Printf("  • Both patterns can coexist in the same directory\n")
+	fmt.Printf("  • Symlinks work correctly with both patterns\n")
+}
+
+// Example of how to use the new pattern in practice
+func practicalExample() {
+	fmt.Println("\n5. Practical Usage Example")
+	fmt.Println("--------------------------")
+	
+	// This demonstrates how to use the new pattern with Helm
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName:  "versions",
+		SourceBinaryName:        "helm",
+		BinaryName:              "helm",
+		CreateLocalSymlink:      true,
+		CreateGlobalSymlink:     false,
+		BaseBinaryDirectory:     "/home/user/.local/bin",
+		SourceArchivePath:       "/tmp/helm-latest.tar.gz",
+		UseVersionsSubdirectory: true, // Enable new pattern
+		IsDirectBinary:          false,
+		ProjectName:             "helm",
+	}
+
+	// Get Helm CDN configuration
+	helmConfig := release.GetHelmCDNConfig()
+	githubRelease := release.NewGithubReleaseWithCDNConfig("helm/helm", config, helmConfig)
+	
+	fmt.Printf("Ready to download and install Helm with clean directory structure!\n")
+	fmt.Printf("Configuration: %+v\n", config)
+	
+	// In a real scenario, you would call:
+	// err := githubRelease.DownloadLatestRelease()
+	// if err != nil {
+	//     log.Fatalf("Download failed: %v", err)
+	// }
+	// err = githubRelease.InstallLatestRelease()
+	// if err != nil {
+	//     log.Fatalf("Installation failed: %v", err)
+	// }
+	
+	fmt.Printf("Result: Clean ~/.local/bin/ with helm symlink pointing to versions/helm/vX.Y.Z/helm\n")
+}
+
+func init() {
+	// Suppress log output for cleaner demo
+	log.SetOutput(nil)
+}

@@ -15,6 +15,7 @@ A powerful Go library that makes it easy to automatically update CLI binaries fr
 - **Hybrid Download Strategy**: Tries GitHub/GitLab first, then falls back to CDN sources
 - **Direct Binary Support**: Handles both archived and direct binary downloads
 - **Enhanced Symlink Management**: Automatic symlink creation with graceful fallback and refined control
+- **Clean Directory Structure**: Optional `versions/` subdirectory pattern for organized storage
 - **Complex Archive Extraction**: Supports binaries in subdirectories with configurable extraction
 - **Dual Provider Support**: Works with both GitHub and GitLab releases
 - **Interface-Based Design**: Easily switch between providers or add new ones
