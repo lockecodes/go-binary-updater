@@ -6,19 +6,44 @@ import (
 	"gitlab.com/locke-codes/go-binary-updater/pkg/fileUtils"
 	"log"
 	"net/http"
+	"os"
 	"path"
+	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 )
 
-const gitlabApiUrl = "https://gitlab.com/api/v4/projects/%s/releases"
+// Default GitLab API configuration
+const (
+	DefaultGitLabAPIURL = "https://gitlab.com/api/v4"
+	GitLabAPIVersion    = "v4"
+)
+
+// GitLabConfig holds configuration for GitLab API access
+type GitLabConfig struct {
+	BaseURL       string            // GitLab instance base URL (e.g., "https://gitlab.example.com/api/v4")
+	Token         string            // Personal Access Token or Project Access Token
+	HTTPConfig    HTTPClientConfig  // HTTP client configuration with retry logic
+	CustomHeaders map[string]string // Additional headers for requests
+}
+
+// DefaultGitLabConfig returns a default GitLab configuration
+func DefaultGitLabConfig() GitLabConfig {
+	return GitLabConfig{
+		BaseURL:       DefaultGitLabAPIURL,
+		HTTPConfig:    DefaultHTTPClientConfig(),
+		CustomHeaders: make(map[string]string),
+	}
+}
 
 type GitLabRelease struct {
 	ProjectId   string               `json:"project_id"`
 	ReleaseLink string               `json:"latest_release_link"`
 	Version     string               `json:"version"`
 	Config      fileUtils.FileConfig `json:"config"`
-	BaseURL     string               // Added to allow overriding API URL for tests
+	GitLabConfig GitLabConfig        `json:"gitlab_config"` // Enhanced configuration
+	httpClient  *RetryableHTTPClient // HTTP client with retry logic
 }
 
 func (r *GitLabRelease) getTempSourceArchivePath() string {
@@ -28,63 +53,134 @@ func (r *GitLabRelease) getTempSourceArchivePath() string {
 	return path.Join("/tmp", fmt.Sprintf("binary-%s.tar.gz", r.Version))
 }
 
+// initializeHTTPClient initializes the HTTP client if not already done
+func (r *GitLabRelease) initializeHTTPClient() {
+	if r.httpClient == nil {
+		// Ensure GitLabConfig is initialized
+		if r.GitLabConfig.BaseURL == "" && r.GitLabConfig.HTTPConfig.MaxRetries == 0 {
+			r.GitLabConfig = DefaultGitLabConfig()
+		}
+		r.httpClient = NewRetryableHTTPClient(r.GitLabConfig.HTTPConfig)
+	}
+}
+
+// GetApiUrl constructs the GitLab API URL for releases
 func (r *GitLabRelease) GetApiUrl() (string, error) {
-	// Convert the string to an integer
+	// Validate project ID
 	projectId, err := strconv.Atoi(r.ProjectId)
 	if err != nil {
-		fmt.Println("Error:", err)
-		return "", err
+		return "", fmt.Errorf("invalid project ID format '%s': %w", r.ProjectId, err)
 	}
 
 	if projectId <= 0 {
-		return "", fmt.Errorf("invalid project ID: %s", r.ProjectId)
+		return "", fmt.Errorf("invalid project ID: %s (must be positive integer)", r.ProjectId)
 	}
-	if r.BaseURL == "" {
-		urlString := fmt.Sprintf(gitlabApiUrl, r.ProjectId)
-		return urlString, nil
+
+	// Use configured base URL or default
+	baseURL := r.GitLabConfig.BaseURL
+	if baseURL == "" {
+		// Initialize config if not set
+		if r.GitLabConfig.HTTPConfig.MaxRetries == 0 {
+			r.GitLabConfig = DefaultGitLabConfig()
+		}
+		baseURL = DefaultGitLabAPIURL
 	}
-	// Construct the request URL
-	reqUrl := r.BaseURL + "/" + r.ProjectId + "/releases"
-	return reqUrl, nil
+
+	// Remove trailing slash if present
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// Construct the releases endpoint URL
+	return fmt.Sprintf("%s/projects/%s/releases", baseURL, r.ProjectId), nil
+}
+
+// getAuthHeaders returns authentication headers if token is configured
+func (r *GitLabRelease) getAuthHeaders() map[string]string {
+	headers := make(map[string]string)
+
+	// Add authentication header if token is provided
+	if r.GitLabConfig.Token != "" {
+		headers["Authorization"] = "Bearer " + r.GitLabConfig.Token
+	}
+
+	// Add custom headers
+	for key, value := range r.GitLabConfig.CustomHeaders {
+		headers[key] = value
+	}
+
+	// Add standard headers
+	headers["Accept"] = "application/json"
+	headers["User-Agent"] = "go-binary-updater/1.0"
+
+	return headers
 }
 
 func (r *GitLabRelease) GetLatestRelease() error {
 	log.Println("Fetching latest release from GitLab")
+
+	// Initialize HTTP client
+	r.initializeHTTPClient()
+
 	apiURL, err := r.GetApiUrl()
 	if err != nil {
 		return fmt.Errorf("error constructing GitLab API URL: %w", err)
 	}
 
-	resp, err := http.Get(apiURL)
+	// Get authentication headers
+	headers := r.getAuthHeaders()
+
+	// Make request with retry logic
+	resp, err := r.httpClient.GetWithHeaders(apiURL, headers)
 	if err != nil {
 		return fmt.Errorf("error making HTTP request to GitLab: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	// Handle different status codes
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Success - continue processing
+	case http.StatusNotFound:
+		return fmt.Errorf("GitLab project not found (ID: %s). Check project ID and permissions", r.ProjectId)
+	case http.StatusForbidden:
+		return fmt.Errorf("access denied to GitLab project (ID: %s). Check authentication token and permissions", r.ProjectId)
+	case http.StatusUnauthorized:
+		return fmt.Errorf("authentication failed for GitLab project (ID: %s). Check token validity", r.ProjectId)
+	default:
 		return fmt.Errorf("unexpected status code from GitLab: %d", resp.StatusCode)
 	}
 
-	var responses []GitlabReleaseResponse
+	// Read response body
+	body, err := ReadResponseBody(resp)
+	if err != nil {
+		return fmt.Errorf("error reading response body from GitLab: %w", err)
+	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&responses); err != nil {
-		return fmt.Errorf(
-			"error decoding response from GitLab: %w",
-			err)
+	var responses []GitlabReleaseResponse
+	if err := json.Unmarshal(body, &responses); err != nil {
+		return fmt.Errorf("error decoding response from GitLab: %w", err)
 	}
 
 	if len(responses) == 0 {
-		return fmt.Errorf(
-			"no GitLab releases found for project ID %s",
-			r.ProjectId)
+		return fmt.Errorf("no GitLab releases found for project ID %s", r.ProjectId)
 	}
 
-	// Sort releases and get the latest one
+	// Sort releases by release date (most recent first)
 	sort.Slice(responses, func(i, j int) bool {
 		return responses[i].ReleasedAt.After(responses[j].ReleasedAt)
 	})
-	r.ReleaseLink = responses[0].GetReleaseLink()
-	r.Version = responses[0].TagName
+
+	// Get the latest release
+	latestRelease := responses[0]
+	r.Version = latestRelease.TagName
+
+	// Find platform-specific release link
+	releaseLink := latestRelease.GetReleaseLink()
+	if releaseLink == "" {
+		return fmt.Errorf("no suitable asset found for current platform (%s_%s) in GitLab release %s",
+			runtime.GOOS, MapArch(runtime.GOARCH), latestRelease.TagName)
+	}
+
+	r.ReleaseLink = releaseLink
 	return nil
 }
 
@@ -109,9 +205,66 @@ func (r *GitLabRelease) InstallLatestRelease() error {
 	return fileUtils.InstallBinary(r.Config, r.Version)
 }
 
+
+
+// NewGitlabRelease creates a new GitLab release instance with default configuration
 func NewGitlabRelease(projectId string, fileConfig fileUtils.FileConfig) *GitLabRelease {
-	return &GitLabRelease{
-		ProjectId: projectId,
-		Config:    fileConfig,
+	config := DefaultGitLabConfig()
+
+	// Check for environment variables
+	if token := os.Getenv("GITLAB_TOKEN"); token != "" {
+		config.Token = token
 	}
+	if baseURL := os.Getenv("GITLAB_API_URL"); baseURL != "" {
+		config.BaseURL = baseURL
+	}
+
+	return &GitLabRelease{
+		ProjectId:    projectId,
+		Config:       fileConfig,
+		GitLabConfig: config,
+	}
+}
+
+// NewGitlabReleaseWithToken creates a new GitLab release instance with authentication token
+func NewGitlabReleaseWithToken(projectId string, token string, fileConfig fileUtils.FileConfig) *GitLabRelease {
+	config := DefaultGitLabConfig()
+	config.Token = token
+
+	// Check for custom base URL in environment
+	if baseURL := os.Getenv("GITLAB_API_URL"); baseURL != "" {
+		config.BaseURL = baseURL
+	}
+
+	return &GitLabRelease{
+		ProjectId:    projectId,
+		Config:       fileConfig,
+		GitLabConfig: config,
+	}
+}
+
+// NewGitlabReleaseWithConfig creates a new GitLab release instance with full configuration
+func NewGitlabReleaseWithConfig(projectId string, fileConfig fileUtils.FileConfig, gitlabConfig GitLabConfig) *GitLabRelease {
+	return &GitLabRelease{
+		ProjectId:    projectId,
+		Config:       fileConfig,
+		GitLabConfig: gitlabConfig,
+	}
+}
+
+// SetCustomHeaders allows setting custom headers for GitLab API requests
+func (r *GitLabRelease) SetCustomHeaders(headers map[string]string) {
+	if r.GitLabConfig.CustomHeaders == nil {
+		r.GitLabConfig.CustomHeaders = make(map[string]string)
+	}
+	for key, value := range headers {
+		r.GitLabConfig.CustomHeaders[key] = value
+	}
+}
+
+// SetHTTPConfig allows customizing the HTTP client configuration
+func (r *GitLabRelease) SetHTTPConfig(config HTTPClientConfig) {
+	r.GitLabConfig.HTTPConfig = config
+	// Reset HTTP client to pick up new configuration
+	r.httpClient = nil
 }

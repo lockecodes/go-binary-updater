@@ -30,8 +30,29 @@ config := fileUtils.FileConfig{
     SourceArchivePath:      "/tmp/myapp-latest.tar.gz",
 }
 
-// Create GitLab release instance using project ID
+// Basic GitLab release instance using project ID
 gitlabRelease := release.NewGitlabRelease("12345678", config)
+```
+
+### With Authentication
+
+```go
+// With GitLab Personal Access Token
+token := os.Getenv("GITLAB_TOKEN")
+gitlabRelease := release.NewGitlabReleaseWithToken("12345678", token, config)
+```
+
+### With Custom Configuration
+
+```go
+// Full configuration with custom settings
+gitlabConfig := release.DefaultGitLabConfig()
+gitlabConfig.BaseURL = "https://gitlab.example.com/api/v4"  // Self-hosted GitLab
+gitlabConfig.Token = "your-access-token"
+gitlabConfig.HTTPConfig.MaxRetries = 5
+gitlabConfig.HTTPConfig.InitialDelay = 2 * time.Second
+
+gitlabRelease := release.NewGitlabReleaseWithConfig("12345678", config, gitlabConfig)
 ```
 
 ### Finding Your GitLab Project ID
@@ -90,25 +111,64 @@ The library automatically detects your platform and selects the appropriate bina
 
 ## Authentication
 
-### GitLab Token
+### GitLab Token Support
 
-For private projects or to avoid rate limiting, you can use GitLab Personal Access Tokens or Project Access Tokens:
+The library now includes full support for GitLab authentication using Personal Access Tokens or Project Access Tokens:
 
 1. **Personal Access Token**: Go to GitLab → User Settings → Access Tokens
 2. **Project Access Token**: Go to Project → Settings → Access Tokens
 3. Required scopes: `read_api` for public projects, `read_repository` for private projects
 
+#### Environment Variable (Recommended)
+
 ```bash
 export GITLAB_TOKEN=your_token_here
+export GITLAB_API_URL=https://gitlab.example.com/api/v4  # For self-hosted GitLab
 ```
 
-**Note**: The current implementation doesn't include built-in token authentication, but you can extend the HTTP client to include authentication headers if needed.
+The library automatically picks up these environment variables when using `NewGitlabRelease()`.
 
-### Rate Limiting
+#### Programmatic Authentication
 
+```go
+// Using constructor with token
+gitlabRelease := release.NewGitlabReleaseWithToken("12345678", "your-token", config)
+
+// Using full configuration
+gitlabConfig := release.DefaultGitLabConfig()
+gitlabConfig.Token = "your-token"
+gitlabConfig.BaseURL = "https://gitlab.example.com/api/v4"
+gitlabRelease := release.NewGitlabReleaseWithConfig("12345678", config, gitlabConfig)
+```
+
+### Rate Limiting and Retry Logic
+
+The library includes intelligent retry logic with exponential backoff:
+
+#### Automatic Retry Features
+- **Exponential Backoff**: Automatically increases delay between retries
+- **Rate Limit Handling**: Respects `Retry-After` headers from GitLab
+- **Circuit Breaker**: Prevents excessive requests after repeated failures
+- **Configurable Timeouts**: Customizable request timeouts and retry counts
+
+#### GitLab Rate Limits
 - **Public GitLab.com**: 2,000 requests per minute per IP
 - **Authenticated**: Higher limits based on your GitLab plan
 - **Self-hosted GitLab**: Depends on instance configuration
+
+#### Customizing Retry Behavior
+
+```go
+gitlabConfig := release.DefaultGitLabConfig()
+gitlabConfig.HTTPConfig.MaxRetries = 5                    // Max retry attempts
+gitlabConfig.HTTPConfig.InitialDelay = 2 * time.Second    // Initial delay
+gitlabConfig.HTTPConfig.MaxDelay = 60 * time.Second       // Maximum delay
+gitlabConfig.HTTPConfig.BackoffFactor = 2.0               // Exponential factor
+gitlabConfig.HTTPConfig.Timeout = 45 * time.Second        // Request timeout
+gitlabConfig.HTTPConfig.CircuitBreaker = true             // Enable circuit breaker
+
+gitlabRelease := release.NewGitlabReleaseWithConfig("12345678", config, gitlabConfig)
+```
 
 ## Error Handling
 

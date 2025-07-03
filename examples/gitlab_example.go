@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"time"
 
 	"gitlab.com/locke-codes/go-binary-updater/pkg/fileUtils"
 	"gitlab.com/locke-codes/go-binary-updater/pkg/release"
@@ -23,6 +25,12 @@ func main() {
 	// Project ID format: numeric ID (e.g., "12345678")
 	// You can find this in your GitLab project settings or main page
 	gitlabRelease := release.NewGitlabRelease("12345678", config)
+
+	// Optional: Use authentication for private repos or higher rate limits
+	// token := os.Getenv("GITLAB_TOKEN")
+	// if token != "" {
+	//     gitlabRelease = release.NewGitlabReleaseWithToken("12345678", token, config)
+	// }
 
 	// Example 1: Get latest release information
 	fmt.Println("Fetching latest release information...")
@@ -60,6 +68,35 @@ func main() {
 	fmt.Printf("Interface works! Version: %s\n", gitlabRelease.Version)
 }
 
+// Example function showing how to use GitLab releases with authentication
+func exampleWithAuthentication() {
+	token := os.Getenv("GITLAB_TOKEN")
+	if token == "" {
+		log.Println("No GITLAB_TOKEN environment variable set")
+		return
+	}
+
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "myapp",
+		BinaryName:             "myapp",
+		CreateGlobalSymlink:    false,
+		BaseBinaryDirectory:    "/tmp/test-install",
+		SourceArchivePath:      "/tmp/myapp-latest.tar.gz",
+	}
+
+	// Create GitLab release with authentication
+	gitlabRelease := release.NewGitlabReleaseWithToken("12345678", token, config)
+
+	err := gitlabRelease.GetLatestRelease()
+	if err != nil {
+		log.Printf("Error with authenticated request: %v", err)
+		return
+	}
+
+	fmt.Printf("Authenticated request successful! Version: %s\n", gitlabRelease.Version)
+}
+
 // Example function showing how to use GitLab releases with self-hosted instances
 func exampleWithSelfHostedGitLab() {
 	config := fileUtils.FileConfig{
@@ -71,11 +108,11 @@ func exampleWithSelfHostedGitLab() {
 		SourceArchivePath:      "/tmp/myapp-latest.tar.gz",
 	}
 
-	// Create GitLab release for self-hosted instance
-	gitlabRelease := release.NewGitlabRelease("12345678", config)
-	
-	// Override base URL for self-hosted GitLab
-	gitlabRelease.BaseURL = "https://gitlab.example.com/api/v4/projects"
+	// Create GitLab configuration for self-hosted instance
+	gitlabConfig := release.DefaultGitLabConfig()
+	gitlabConfig.BaseURL = "https://gitlab.example.com/api/v4"
+
+	gitlabRelease := release.NewGitlabReleaseWithConfig("12345678", config, gitlabConfig)
 
 	err := gitlabRelease.GetLatestRelease()
 	if err != nil {
@@ -110,7 +147,7 @@ func exampleErrorHandling() {
 
 	// Example with invalid project ID
 	gitlabRelease := release.NewGitlabRelease("invalid", config)
-	
+
 	err := gitlabRelease.GetLatestRelease()
 	if err != nil {
 		fmt.Printf("Expected error with invalid project ID: %v\n", err)
@@ -118,7 +155,7 @@ func exampleErrorHandling() {
 
 	// Example with non-existent project
 	gitlabRelease = release.NewGitlabRelease("999999999", config)
-	
+
 	err = gitlabRelease.GetLatestRelease()
 	if err != nil {
 		fmt.Printf("Expected error with non-existent project: %v\n", err)
@@ -141,20 +178,20 @@ func examplePolymorphicUsage() {
 
 	// Add GitLab provider
 	providers = append(providers, release.NewGitlabRelease("12345678", config))
-	
+
 	// Add GitHub provider (if you have both)
 	providers = append(providers, release.NewGithubRelease("owner/repo", config))
 
 	// Use the same interface for both
 	for i, provider := range providers {
 		fmt.Printf("Testing provider %d...\n", i+1)
-		
+
 		err := provider.GetLatestRelease()
 		if err != nil {
 			fmt.Printf("Provider %d failed: %v\n", i+1, err)
 			continue
 		}
-		
+
 		fmt.Printf("Provider %d succeeded!\n", i+1)
 	}
 }
@@ -163,12 +200,12 @@ func examplePolymorphicUsage() {
 func exampleAdvancedConfiguration() {
 	// Advanced configuration with all options
 	config := fileUtils.FileConfig{
-		VersionedDirectoryName: "versions",           // Directory name for versioned binaries
-		SourceBinaryName:       "myapp",              // Name of binary in the archive
-		BinaryName:             "myapp-cli",          // Name to use for installed binary
-		CreateGlobalSymlink:    true,                 // Create symlink in PATH
-		BaseBinaryDirectory:    "/opt/myapp",         // Base installation directory
-		SourceArchivePath:      "/tmp/myapp.tar.gz",  // Download location
+		VersionedDirectoryName: "versions",          // Directory name for versioned binaries
+		SourceBinaryName:       "myapp",             // Name of binary in the archive
+		BinaryName:             "myapp-cli",         // Name to use for installed binary
+		CreateGlobalSymlink:    true,                // Create symlink in PATH
+		BaseBinaryDirectory:    "/opt/myapp",        // Base installation directory
+		SourceArchivePath:      "/tmp/myapp.tar.gz", // Download location
 	}
 
 	gitlabRelease := release.NewGitlabRelease("12345678", config)
@@ -178,7 +215,7 @@ func exampleAdvancedConfiguration() {
 	// 2. Extract 'myapp' binary from archive
 	// 3. Install to /opt/myapp/versions/v1.2.3/myapp-cli
 	// 4. Create symlink /opt/myapp/myapp-cli → /opt/myapp/versions/v1.2.3/myapp-cli
-	
+
 	err := gitlabRelease.DownloadLatestRelease()
 	if err != nil {
 		log.Printf("Download failed: %v", err)
@@ -192,6 +229,47 @@ func exampleAdvancedConfiguration() {
 	}
 
 	fmt.Printf("Advanced installation completed for version %s\n", gitlabRelease.Version)
+}
+
+// Example showing advanced HTTP configuration with retry logic
+func exampleAdvancedHTTPConfig() {
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "myapp",
+		BinaryName:             "myapp",
+		CreateGlobalSymlink:    false,
+		BaseBinaryDirectory:    "/tmp/test-install",
+		SourceArchivePath:      "/tmp/myapp-latest.tar.gz",
+	}
+
+	// Create advanced GitLab configuration
+	gitlabConfig := release.DefaultGitLabConfig()
+	gitlabConfig.BaseURL = "https://gitlab.example.com/api/v4" // Self-hosted GitLab
+	gitlabConfig.Token = os.Getenv("GITLAB_TOKEN")
+
+	// Configure retry logic
+	gitlabConfig.HTTPConfig.MaxRetries = 5
+	gitlabConfig.HTTPConfig.InitialDelay = 2 * time.Second
+	gitlabConfig.HTTPConfig.MaxDelay = 60 * time.Second
+	gitlabConfig.HTTPConfig.BackoffFactor = 2.0
+	gitlabConfig.HTTPConfig.Timeout = 45 * time.Second
+	gitlabConfig.HTTPConfig.CircuitBreaker = true
+
+	// Add custom headers
+	gitlabConfig.CustomHeaders = map[string]string{
+		"X-Custom-Header": "custom-value",
+		"User-Agent":      "my-app/1.0",
+	}
+
+	gitlabRelease := release.NewGitlabReleaseWithConfig("12345678", config, gitlabConfig)
+
+	err := gitlabRelease.GetLatestRelease()
+	if err != nil {
+		log.Printf("Advanced configuration failed: %v", err)
+		return
+	}
+
+	fmt.Printf("Advanced configuration successful! Version: %s\n", gitlabRelease.Version)
 }
 
 // Example showing how to check if a release exists before downloading
