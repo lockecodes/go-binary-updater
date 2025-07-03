@@ -22,6 +22,9 @@ type FileConfig struct {
 	// Enhanced symlink control (preserving symlink-first approach)
 	CreateLocalSymlink     bool   `json:"create_local_symlink"`     // Create local symlink in BaseBinaryDirectory (default: true)
 
+	// Enhanced directory structure control
+	UseVersionsSubdirectory bool   `json:"use_versions_subdirectory"` // Use versions/{ProjectName}/ subdirectory pattern (default: false for backward compatibility)
+
 	// Enhanced configuration for flexible asset handling
 	IsDirectBinary         bool   `json:"is_direct_binary"`         // True if the downloaded asset is a direct binary, not an archive
 	ProjectName            string `json:"project_name"`             // Project name for asset matching (e.g., "k0s", "kubectl")
@@ -51,10 +54,48 @@ type ExtractionConfig struct {
 // DefaultFileConfig returns a FileConfig with sensible defaults that preserve symlink-first behavior
 func DefaultFileConfig() FileConfig {
 	return FileConfig{
-		CreateLocalSymlink:    true,  // Default: create local symlinks (core value proposition)
-		CreateGlobalSymlink:   false, // Default: don't create global symlinks (requires sudo)
-		AssetMatchingStrategy: "flexible", // Default: use flexible matching
-		IsDirectBinary:        false, // Default: assume archived binaries
+		CreateLocalSymlink:      true,  // Default: create local symlinks (core value proposition)
+		CreateGlobalSymlink:     false, // Default: don't create global symlinks (requires sudo)
+		UseVersionsSubdirectory: false, // Default: use legacy directory structure for backward compatibility
+		AssetMatchingStrategy:   "flexible", // Default: use flexible matching
+		IsDirectBinary:          false, // Default: assume archived binaries
+	}
+}
+
+// GetVersionedDirectoryPath returns the path to the versioned directory based on configuration
+func GetVersionedDirectoryPath(config FileConfig, version string) string {
+	if config.UseVersionsSubdirectory {
+		// New pattern: BaseBinaryDirectory/versions/{ProjectName}/{version}/
+		projectName := config.ProjectName
+		if projectName == "" {
+			// Fallback to BinaryName if ProjectName is not set
+			projectName = config.BinaryName
+		}
+		return filepath.Join(config.BaseBinaryDirectory, "versions", projectName, version)
+	} else {
+		// Legacy pattern: BaseBinaryDirectory/{VersionedDirectoryName}/{version}/
+		return filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version)
+	}
+}
+
+// GetVersionedBinaryPath returns the full path to the binary in the versioned directory
+func GetVersionedBinaryPath(config FileConfig, version string) string {
+	versionDir := GetVersionedDirectoryPath(config, version)
+	return filepath.Join(versionDir, config.BinaryName)
+}
+
+// GetSymlinkTargetPath returns the relative path from symlink to target for proper symlink creation
+func GetSymlinkTargetPath(config FileConfig, version string) string {
+	if config.UseVersionsSubdirectory {
+		// New pattern: versions/{ProjectName}/{version}/{binary}
+		projectName := config.ProjectName
+		if projectName == "" {
+			projectName = config.BinaryName
+		}
+		return filepath.Join("versions", projectName, version, config.BinaryName)
+	} else {
+		// Legacy pattern: {VersionedDirectoryName}/{version}/{binary}
+		return filepath.Join(config.VersionedDirectoryName, version, config.BinaryName)
 	}
 }
 
@@ -62,11 +103,15 @@ func DefaultFileConfig() FileConfig {
 // Prefers symlink path when available, falls back to versioned directory path
 func GetInstalledBinaryPath(config FileConfig, version string) (string, error) {
 	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
-	versionedPath := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version, config.BinaryName)
+	versionedPath := GetVersionedBinaryPath(config, version)
 
 	// Prefer local symlink if it exists and points to the correct version
 	if config.CreateLocalSymlink && FileExists(localSymlinkPath) {
 		if resolvedPath, err := os.Readlink(localSymlinkPath); err == nil {
+			// For new pattern, resolve relative symlinks
+			if !filepath.IsAbs(resolvedPath) {
+				resolvedPath = filepath.Join(config.BaseBinaryDirectory, resolvedPath)
+			}
 			if resolvedPath == versionedPath {
 				return localSymlinkPath, nil
 			}
@@ -85,7 +130,7 @@ func GetInstalledBinaryPath(config FileConfig, version string) (string, error) {
 func GetInstallationInfo(config FileConfig, version string) (*InstallationInfo, error) {
 	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
 	globalSymlinkPath := filepath.Join("/usr/local/bin", config.BinaryName)
-	versionedPath := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version, config.BinaryName)
+	versionedPath := GetVersionedBinaryPath(config, version)
 
 	info := &InstallationInfo{
 		Version:             version,
@@ -105,10 +150,19 @@ func GetInstallationInfo(config FileConfig, version string) (*InstallationInfo, 
 	// Check local symlink status
 	if config.CreateLocalSymlink {
 		if FileExists(localSymlinkPath) {
-			if resolvedPath, err := os.Readlink(localSymlinkPath); err == nil && resolvedPath == versionedPath {
-				info.LocalSymlinkCreated = true
-				info.SymlinkStatus = "created"
-				info.BinaryPath = localSymlinkPath
+			if resolvedPath, err := os.Readlink(localSymlinkPath); err == nil {
+				// For new pattern, resolve relative symlinks
+				if !filepath.IsAbs(resolvedPath) {
+					resolvedPath = filepath.Join(config.BaseBinaryDirectory, resolvedPath)
+				}
+				if resolvedPath == versionedPath {
+					info.LocalSymlinkCreated = true
+					info.SymlinkStatus = "created"
+					info.BinaryPath = localSymlinkPath
+				} else {
+					info.SymlinkStatus = "failed"
+					info.BinaryPath = versionedPath
+				}
 			} else {
 				info.SymlinkStatus = "failed"
 				info.BinaryPath = versionedPath
@@ -155,12 +209,22 @@ func FindBinary(directory, binaryName string) (string, error) {
 }
 
 // UpdateSymlink updates the symlink to point to the latest target.
-// - `target` is the file for the symlink to point to.
+// - `target` is the file for the symlink to point to (can be relative or absolute).
 // - `symlinkPath` is the path where the symlink should be created.
 func UpdateSymlink(target, symlinkPath string) error {
+	// For relative targets, verify the target exists relative to the symlink directory
+	var targetToCheck string
+	if filepath.IsAbs(target) {
+		targetToCheck = target
+	} else {
+		// For relative paths, resolve relative to the symlink directory
+		symlinkDir := filepath.Dir(symlinkPath)
+		targetToCheck = filepath.Join(symlinkDir, target)
+	}
+
 	// Verify target exists
-	if !FileExists(target) {
-		return fmt.Errorf("target file does not exist: %s", target)
+	if !FileExists(targetToCheck) {
+		return fmt.Errorf("target file does not exist: %s", targetToCheck)
 	}
 
 	// Remove the symlink if it already exists
@@ -243,7 +307,7 @@ func InstallDirectBinary(fileConfig FileConfig, version string) error {
 		config.CreateLocalSymlink = true
 	}
 
-	versionDir := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version)
+	versionDir := GetVersionedDirectoryPath(config, version)
 	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
 	globalSymlinkPath := filepath.Join("/usr/local/bin", config.BinaryName)
 
@@ -275,9 +339,10 @@ func InstallDirectBinary(fileConfig FileConfig, version string) error {
 	localSymlinkCreated := false
 	if config.CreateLocalSymlink {
 		fmt.Println("Creating local symlink...")
-		localSymlinkCreated = TryUpdateSymlink(finalBinaryPath, localSymlinkPath)
+		symlinkTarget := GetSymlinkTargetPath(config, version)
+		localSymlinkCreated = TryUpdateSymlink(symlinkTarget, localSymlinkPath)
 		if localSymlinkCreated {
-			fmt.Printf("Local symlink created: %s -> %s\n", localSymlinkPath, finalBinaryPath)
+			fmt.Printf("Local symlink created: %s -> %s\n", localSymlinkPath, symlinkTarget)
 		}
 	} else {
 		fmt.Println("Local symlink creation disabled")
@@ -318,7 +383,7 @@ func InstallArchivedBinaryWithConfig(fileConfig FileConfig, version string, extr
 		config.CreateLocalSymlink = true
 	}
 
-	versionDir := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version)
+	versionDir := GetVersionedDirectoryPath(config, version)
 	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
 	globalSymlinkPath := filepath.Join("/usr/local/bin", config.BinaryName)
 
@@ -388,9 +453,10 @@ func InstallArchivedBinaryWithConfig(fileConfig FileConfig, version string, extr
 	localSymlinkCreated := false
 	if config.CreateLocalSymlink {
 		fmt.Println("Creating local symlink...")
-		localSymlinkCreated = TryUpdateSymlink(finalBinaryPath, localSymlinkPath)
+		symlinkTarget := GetSymlinkTargetPath(config, version)
+		localSymlinkCreated = TryUpdateSymlink(symlinkTarget, localSymlinkPath)
 		if localSymlinkCreated {
-			fmt.Printf("Local symlink created: %s -> %s\n", localSymlinkPath, finalBinaryPath)
+			fmt.Printf("Local symlink created: %s -> %s\n", localSymlinkPath, symlinkTarget)
 		}
 	} else {
 		fmt.Println("Local symlink creation disabled")
