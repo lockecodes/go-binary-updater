@@ -281,6 +281,23 @@ func NewGitlabReleaseWithConfig(projectId string, fileConfig fileUtils.FileConfi
 	}
 }
 
+// GetInstalledBinaryPath returns the preferred path to the installed binary
+// Prefers symlink path when available, falls back to versioned directory path
+func (r *GitLabRelease) GetInstalledBinaryPath() (string, error) {
+	if r.Version == "" {
+		return "", fmt.Errorf("no version information available - call GetLatestRelease() first")
+	}
+	return fileUtils.GetInstalledBinaryPath(r.Config, r.Version)
+}
+
+// GetInstallationInfo returns comprehensive information about the installed binary
+func (r *GitLabRelease) GetInstallationInfo() (*fileUtils.InstallationInfo, error) {
+	if r.Version == "" {
+		return nil, fmt.Errorf("no version information available - call GetLatestRelease() first")
+	}
+	return fileUtils.GetInstallationInfo(r.Config, r.Version)
+}
+
 // SetCustomHeaders allows setting custom headers for GitLab API requests
 func (r *GitLabRelease) SetCustomHeaders(headers map[string]string) {
 	if r.GitLabConfig.CustomHeaders == nil {

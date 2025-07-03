@@ -144,3 +144,20 @@ func NewGithubReleaseWithToken(repository string, token string, fileConfig fileU
 	release.Token = token
 	return release
 }
+
+// GetInstalledBinaryPath returns the preferred path to the installed binary
+// Prefers symlink path when available, falls back to versioned directory path
+func (g *GithubRelease) GetInstalledBinaryPath() (string, error) {
+	if g.Version == "" {
+		return "", fmt.Errorf("no version information available - call GetLatestRelease() first")
+	}
+	return fileUtils.GetInstalledBinaryPath(g.Config, g.Version)
+}
+
+// GetInstallationInfo returns comprehensive information about the installed binary
+func (g *GithubRelease) GetInstallationInfo() (*fileUtils.InstallationInfo, error) {
+	if g.Version == "" {
+		return nil, fmt.Errorf("no version information available - call GetLatestRelease() first")
+	}
+	return fileUtils.GetInstallationInfo(g.Config, g.Version)
+}

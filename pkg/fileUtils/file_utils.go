@@ -1,7 +1,6 @@
 package fileUtils
 
 import (
-	"errors"
 	"fmt"
 	"gitlab.com/locke-codes/go-binary-updater/pkg/archiver"
 	"io"
@@ -14,15 +13,113 @@ type FileConfig struct {
 	VersionedDirectoryName string `json:"versioned_directory_name"`
 	SourceBinaryName       string `json:"source_binary_name"`
 	BinaryName             string `json:"binary_name"`
-	CreateGlobalSymlink    bool   `json:"create_global_symlink"`
+	CreateGlobalSymlink    bool   `json:"create_global_symlink"`    // Create global symlink in /usr/local/bin (requires sudo)
 	BaseBinaryDirectory    string `json:"base_binary_directory"`
 	SourceArchivePath      string `json:"source_archive_path"`
+
+	// Enhanced symlink control (preserving symlink-first approach)
+	CreateLocalSymlink     bool   `json:"create_local_symlink"`     // Create local symlink in BaseBinaryDirectory (default: true)
 
 	// Enhanced configuration for flexible asset handling
 	IsDirectBinary         bool   `json:"is_direct_binary"`         // True if the downloaded asset is a direct binary, not an archive
 	ProjectName            string `json:"project_name"`             // Project name for asset matching (e.g., "k0s", "kubectl")
 	AssetMatchingStrategy  string `json:"asset_matching_strategy"`  // Strategy for asset matching: "standard", "flexible", "custom"
 	CustomAssetPatterns    []string `json:"custom_asset_patterns"`  // Custom regex patterns for asset matching
+}
+
+// InstallationInfo provides comprehensive information about an installed binary
+type InstallationInfo struct {
+	BinaryPath          string `json:"binary_path"`           // Preferred path to the binary (symlink if available, otherwise versioned path)
+	Version             string `json:"version"`               // Version of the installed binary
+	InstallationType    string `json:"installation_type"`     // "direct_binary" or "extracted_archive"
+	SymlinkStatus       string `json:"symlink_status"`        // "created", "failed", "disabled", "not_attempted"
+	LocalSymlinkPath    string `json:"local_symlink_path"`    // Path to local symlink (if created)
+	GlobalSymlinkPath   string `json:"global_symlink_path"`   // Path to global symlink (if configured)
+	VersionedPath       string `json:"versioned_path"`        // Path to binary in versioned directory
+	LocalSymlinkCreated bool   `json:"local_symlink_created"` // Whether local symlink was successfully created
+	GlobalSymlinkNeeded bool   `json:"global_symlink_needed"` // Whether global symlink creation was requested
+}
+
+// DefaultFileConfig returns a FileConfig with sensible defaults that preserve symlink-first behavior
+func DefaultFileConfig() FileConfig {
+	return FileConfig{
+		CreateLocalSymlink:    true,  // Default: create local symlinks (core value proposition)
+		CreateGlobalSymlink:   false, // Default: don't create global symlinks (requires sudo)
+		AssetMatchingStrategy: "flexible", // Default: use flexible matching
+		IsDirectBinary:        false, // Default: assume archived binaries
+	}
+}
+
+// GetInstalledBinaryPath returns the preferred path to the installed binary
+// Prefers symlink path when available, falls back to versioned directory path
+func GetInstalledBinaryPath(config FileConfig, version string) (string, error) {
+	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
+	versionedPath := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version, config.BinaryName)
+
+	// Prefer local symlink if it exists and points to the correct version
+	if config.CreateLocalSymlink && FileExists(localSymlinkPath) {
+		if resolvedPath, err := os.Readlink(localSymlinkPath); err == nil {
+			if resolvedPath == versionedPath {
+				return localSymlinkPath, nil
+			}
+		}
+	}
+
+	// Fall back to versioned path
+	if FileExists(versionedPath) {
+		return versionedPath, nil
+	}
+
+	return "", fmt.Errorf("binary not found at expected locations: %s or %s", localSymlinkPath, versionedPath)
+}
+
+// GetInstallationInfo returns comprehensive information about an installed binary
+func GetInstallationInfo(config FileConfig, version string) (*InstallationInfo, error) {
+	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
+	globalSymlinkPath := filepath.Join("/usr/local/bin", config.BinaryName)
+	versionedPath := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version, config.BinaryName)
+
+	info := &InstallationInfo{
+		Version:             version,
+		LocalSymlinkPath:    localSymlinkPath,
+		GlobalSymlinkPath:   globalSymlinkPath,
+		VersionedPath:       versionedPath,
+		GlobalSymlinkNeeded: config.CreateGlobalSymlink,
+	}
+
+	// Determine installation type
+	if config.IsDirectBinary {
+		info.InstallationType = "direct_binary"
+	} else {
+		info.InstallationType = "extracted_archive"
+	}
+
+	// Check local symlink status
+	if config.CreateLocalSymlink {
+		if FileExists(localSymlinkPath) {
+			if resolvedPath, err := os.Readlink(localSymlinkPath); err == nil && resolvedPath == versionedPath {
+				info.LocalSymlinkCreated = true
+				info.SymlinkStatus = "created"
+				info.BinaryPath = localSymlinkPath
+			} else {
+				info.SymlinkStatus = "failed"
+				info.BinaryPath = versionedPath
+			}
+		} else {
+			info.SymlinkStatus = "failed"
+			info.BinaryPath = versionedPath
+		}
+	} else {
+		info.SymlinkStatus = "disabled"
+		info.BinaryPath = versionedPath
+	}
+
+	// Verify binary exists
+	if !FileExists(info.BinaryPath) {
+		return nil, fmt.Errorf("binary not found at expected path: %s", info.BinaryPath)
+	}
+
+	return info, nil
 }
 
 // FindBinary searches for a specific binary file in a given directory and its subdirectories.
@@ -55,8 +152,7 @@ func FindBinary(directory, binaryName string) (string, error) {
 func UpdateSymlink(target, symlinkPath string) error {
 	// Verify target exists
 	if !FileExists(target) {
-		fmt.Printf("DEBUG: FileExists returned false for target: %s\n", target)
-		return errors.New(fmt.Sprintf("target file does not exist: %s", target))
+		return fmt.Errorf("target file does not exist: %s", target)
 	}
 
 	// Remove the symlink if it already exists
@@ -81,6 +177,18 @@ func UpdateSymlink(target, symlinkPath string) error {
 	}
 
 	return nil
+}
+
+// TryUpdateSymlink attempts to update a symlink with graceful fallback
+// Returns true if symlink was created successfully, false if it failed
+// Logs warnings for failures but doesn't return errors (graceful fallback)
+func TryUpdateSymlink(target, symlinkPath string) bool {
+	if err := UpdateSymlink(target, symlinkPath); err != nil {
+		fmt.Printf("Warning: Failed to create symlink %s -> %s: %v\n", symlinkPath, target, err)
+		fmt.Printf("Binary is still available at: %s\n", target)
+		return false
+	}
+	return true
 }
 
 // DownloadFile downloads a file from the given URL to the specified path
@@ -118,23 +226,35 @@ func InstallBinary(fileConfig FileConfig, version string) error {
 	return InstallArchivedBinary(fileConfig, version)
 }
 
-// InstallDirectBinary installs a direct binary file (not archived) into a versioned folder with a symlink.
+// InstallDirectBinary installs a direct binary file (not archived) into a versioned folder with enhanced symlink control.
 func InstallDirectBinary(fileConfig FileConfig, version string) error {
-	versionDir := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.VersionedDirectoryName, version)
-	localSymlinkPath := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.BinaryName)
-	globalSymlinkPath := filepath.Join("/usr/local/bin", fileConfig.BinaryName)
+	// Apply defaults for backward compatibility
+	config := fileConfig
+	if config.CreateLocalSymlink == false && config.CreateGlobalSymlink == false {
+		// If both are false, assume this is an old config and enable local symlinks by default
+		config.CreateLocalSymlink = true
+	}
+
+	versionDir := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version)
+	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
+	globalSymlinkPath := filepath.Join("/usr/local/bin", config.BinaryName)
 
 	// Step 1: Create version directory
 	if err := os.MkdirAll(versionDir, 0755); err != nil {
 		return fmt.Errorf("failed to create version directory: %v", err)
 	}
 
-	// Step 2: Move the binary to the versioned folder
+	// Step 2: Install the binary to the versioned folder
 	fmt.Println("Installing the binary...")
-	finalBinaryPath := filepath.Join(versionDir, fileConfig.BinaryName)
+	finalBinaryPath := filepath.Join(versionDir, config.BinaryName)
+
+	// Validate that we're not trying to extract a direct binary
+	if !config.IsDirectBinary {
+		return fmt.Errorf("InstallDirectBinary called but IsDirectBinary is false - this indicates a configuration error")
+	}
 
 	// Copy the downloaded binary to the final location
-	if err := copyFile(fileConfig.SourceArchivePath, finalBinaryPath); err != nil {
+	if err := copyFile(config.SourceArchivePath, finalBinaryPath); err != nil {
 		return fmt.Errorf("failed to copy binary to versioned directory: %v", err)
 	}
 
@@ -143,46 +263,74 @@ func InstallDirectBinary(fileConfig FileConfig, version string) error {
 		return fmt.Errorf("failed to make binary executable: %v", err)
 	}
 
-	// Step 3: Create/update the symlink in the base directory
-	fmt.Println("Updating local symlink...")
-	if err := UpdateSymlink(finalBinaryPath, localSymlinkPath); err != nil {
-		return fmt.Errorf("failed to update local symlink: %v", err)
+	// Step 3: Create/update local symlink (with graceful fallback)
+	localSymlinkCreated := false
+	if config.CreateLocalSymlink {
+		fmt.Println("Creating local symlink...")
+		localSymlinkCreated = TryUpdateSymlink(finalBinaryPath, localSymlinkPath)
+		if localSymlinkCreated {
+			fmt.Printf("Local symlink created: %s -> %s\n", localSymlinkPath, finalBinaryPath)
+		}
+	} else {
+		fmt.Println("Local symlink creation disabled")
 	}
 
-	if fileConfig.CreateGlobalSymlink {
-		// Step 4: Create/update the global symlink in /usr/local/bin
-		fmt.Println("Updating global symlink...")
-		fmt.Println("You must either ensure that ~/.local/bin is in your path or run the following command:")
-		fmt.Printf("sudo ln -s %s %s\n", localSymlinkPath, globalSymlinkPath)
+	// Step 4: Handle global symlink (provide instructions)
+	if config.CreateGlobalSymlink {
+		fmt.Println("Global symlink requested...")
+		if localSymlinkCreated {
+			fmt.Println("To create global symlink, run:")
+			fmt.Printf("sudo ln -s %s %s\n", localSymlinkPath, globalSymlinkPath)
+		} else {
+			fmt.Println("To create global symlink, run:")
+			fmt.Printf("sudo ln -s %s %s\n", finalBinaryPath, globalSymlinkPath)
+		}
 	}
 
 	fmt.Println("Installation successful!")
+	fmt.Printf("Binary installed at: %s\n", finalBinaryPath)
+	if localSymlinkCreated {
+		fmt.Printf("Available via symlink: %s\n", localSymlinkPath)
+	}
+
 	return nil
 }
 
-// InstallArchivedBinary extracts an archive and installs the binary into a versioned folder with a symlink.
+// InstallArchivedBinary extracts an archive and installs the binary into a versioned folder with enhanced symlink control.
 func InstallArchivedBinary(fileConfig FileConfig, version string) error {
-	versionDir := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.VersionedDirectoryName, version)
-	localSymlinkPath := filepath.Join(fileConfig.BaseBinaryDirectory, fileConfig.BinaryName)
-	globalSymlinkPath := filepath.Join("/usr/local/bin", fileConfig.BinaryName)
+	// Apply defaults for backward compatibility
+	config := fileConfig
+	if config.CreateLocalSymlink == false && config.CreateGlobalSymlink == false {
+		// If both are false, assume this is an old config and enable local symlinks by default
+		config.CreateLocalSymlink = true
+	}
+
+	versionDir := filepath.Join(config.BaseBinaryDirectory, config.VersionedDirectoryName, version)
+	localSymlinkPath := filepath.Join(config.BaseBinaryDirectory, config.BinaryName)
+	globalSymlinkPath := filepath.Join("/usr/local/bin", config.BinaryName)
+
+	// Validate that we're trying to extract an archive
+	if config.IsDirectBinary {
+		return fmt.Errorf("InstallArchivedBinary called but IsDirectBinary is true - this indicates a configuration error")
+	}
 
 	// Step 1: Extract the archive
 	handler := archiver.NewArchiveHandler()
-	fmt.Printf("Extracting %s...\n", fileConfig.SourceArchivePath)
-	if err := handler.ExtractArchive(fileConfig.SourceArchivePath, versionDir); err != nil {
+	fmt.Printf("Extracting %s...\n", config.SourceArchivePath)
+	if err := handler.ExtractArchive(config.SourceArchivePath, versionDir); err != nil {
 		return fmt.Errorf("failed to extract archive: %v", err)
 	}
 
 	// Step 2: Locate the binary file
 	fmt.Println("Locating the binary...")
-	binaryPath, err := FindBinary(versionDir, fileConfig.SourceBinaryName)
+	binaryPath, err := FindBinary(versionDir, config.SourceBinaryName)
 	if err != nil {
-		return fmt.Errorf("failed to locate binary %s: %v", fileConfig.SourceBinaryName, err)
+		return fmt.Errorf("failed to locate binary %s: %v", config.SourceBinaryName, err)
 	}
 
-	// Step 3: Move the binary to the versioned folder
+	// Step 3: Move the binary to the expected location
 	fmt.Println("Installing the binary...")
-	finalBinaryPath := filepath.Join(versionDir, fileConfig.SourceBinaryName)
+	finalBinaryPath := filepath.Join(versionDir, config.BinaryName)
 	if err := os.Rename(binaryPath, finalBinaryPath); err != nil {
 		return fmt.Errorf("failed to move binary to versioned directory: %v", err)
 	}
@@ -192,25 +340,36 @@ func InstallArchivedBinary(fileConfig FileConfig, version string) error {
 		return fmt.Errorf("failed to make binary executable: %v", err)
 	}
 
-	// Step 4: Create/update the symlink in ~/.local/bin
-	fmt.Println("Updating local symlink...")
-	if err := UpdateSymlink(finalBinaryPath, localSymlinkPath); err != nil {
-		return fmt.Errorf("failed to update local symlink: %v", err)
+	// Step 4: Create/update local symlink (with graceful fallback)
+	localSymlinkCreated := false
+	if config.CreateLocalSymlink {
+		fmt.Println("Creating local symlink...")
+		localSymlinkCreated = TryUpdateSymlink(finalBinaryPath, localSymlinkPath)
+		if localSymlinkCreated {
+			fmt.Printf("Local symlink created: %s -> %s\n", localSymlinkPath, finalBinaryPath)
+		}
+	} else {
+		fmt.Println("Local symlink creation disabled")
 	}
 
-	if fileConfig.CreateGlobalSymlink {
-		// Step 5: Create/update the global symlink in /usr/local/bin
-		fmt.Println("Updating global symlink...")
-		// For now just output the command for the symlink. If the user already has
-		// ~/.local/bin in path then it should already work
-		fmt.Println("You must either ensure that ~/.local/bin is in your path or run the following command:")
-		fmt.Printf("sudo ln -s %s %s\n", localSymlinkPath, globalSymlinkPath)
-		//if err := updateSymlink(localSymlinkPath, globalSymlinkPath); err != nil {
-		//	return fmt.Errorf("failed to update global symlink: %v", err)
-		//}
+	// Step 5: Handle global symlink (provide instructions)
+	if config.CreateGlobalSymlink {
+		fmt.Println("Global symlink requested...")
+		if localSymlinkCreated {
+			fmt.Println("To create global symlink, run:")
+			fmt.Printf("sudo ln -s %s %s\n", localSymlinkPath, globalSymlinkPath)
+		} else {
+			fmt.Println("To create global symlink, run:")
+			fmt.Printf("sudo ln -s %s %s\n", finalBinaryPath, globalSymlinkPath)
+		}
 	}
 
 	fmt.Println("Installation successful!")
+	fmt.Printf("Binary installed at: %s\n", finalBinaryPath)
+	if localSymlinkCreated {
+		fmt.Printf("Available via symlink: %s\n", localSymlinkPath)
+	}
+
 	return nil
 }
 
