@@ -9,6 +9,8 @@ A powerful Go library that makes it easy to automatically update CLI binaries fr
 ## 🚀 Features
 
 - **Multi-Platform Support**: Automatically detects and downloads the correct binary for your OS and architecture
+- **Flexible Asset Matching**: Supports various naming conventions (k0s, kubectl, helm, terraform, etc.)
+- **Direct Binary Support**: Handles both archived and direct binary downloads
 - **Dual Provider Support**: Works with both GitHub and GitLab releases
 - **Interface-Based Design**: Easily switch between providers or add new ones
 - **Versioned Installation**: Maintains multiple versions with automatic symlink management
@@ -72,6 +74,37 @@ if err != nil {
 }
 
 err = gitlabRelease.InstallLatestRelease()
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### k0s Direct Binary Example
+
+```go
+// k0s uses direct binaries with names like: k0s-v1.33.2+k0s.0-amd64
+config := fileUtils.FileConfig{
+    VersionedDirectoryName: "versions",
+    SourceBinaryName:       "k0s",
+    BinaryName:             "k0s",
+    CreateGlobalSymlink:    true,
+    BaseBinaryDirectory:    "/home/user/.local/bin",
+    SourceArchivePath:      "/tmp/k0s-latest",
+
+    // k0s-specific configuration
+    IsDirectBinary:         true,    // k0s releases direct binaries
+    ProjectName:            "k0s",   // For intelligent asset matching
+    AssetMatchingStrategy:  "flexible",
+}
+
+githubRelease := release.NewGithubRelease("k0sproject/k0s", config)
+
+err := githubRelease.DownloadLatestRelease()
+if err != nil {
+    log.Fatal(err)
+}
+
+err = githubRelease.InstallLatestRelease()
 if err != nil {
     log.Fatal(err)
 }
@@ -203,10 +236,12 @@ Examples:
 ### Provider-Specific Guides
 - [GitHub Usage Guide](docs/GITHUB_USAGE.md) - Complete GitHub integration documentation
 - [GitLab Usage Guide](docs/GITLAB_USAGE.md) - Complete GitLab integration documentation
+- [Flexible Asset Matching](docs/FLEXIBLE_ASSET_MATCHING.md) - Guide for different project naming conventions
 
 ### Examples
 - [GitHub Examples](examples/github_example.go) - Working GitHub examples
 - [GitLab Examples](examples/gitlab_example.go) - Working GitLab examples
+- [k0s Example](examples/k0s_example.go) - Direct binary download example
 
 ## 🧪 Testing
 

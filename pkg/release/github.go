@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"path"
+	"runtime"
 	"strings"
 )
 
@@ -19,6 +20,7 @@ type GithubRelease struct {
 	Config      fileUtils.FileConfig `json:"config"`       // File configuration
 	BaseURL     string               // Added to allow overriding API URL for tests
 	Token       string               // Optional GitHub token for authentication
+	AssetMatchingConfig AssetMatchingConfig `json:"asset_matching_config"` // Configuration for asset matching
 }
 
 func (g *GithubRelease) getTempSourceArchivePath() string {
@@ -83,9 +85,10 @@ func (g *GithubRelease) GetLatestRelease() error {
 
 	// Extract release information
 	g.Version = response.TagName
-	releaseLink := response.GetReleaseLink()
+	releaseLink := response.GetReleaseLinkWithConfig(g.AssetMatchingConfig)
 	if releaseLink == "" {
-		return fmt.Errorf("no suitable asset found for current platform in GitHub release %s", response.TagName)
+		return fmt.Errorf("no suitable asset found for current platform (%s/%s) in GitHub release %s",
+			runtime.GOOS, runtime.GOARCH, response.TagName)
 	}
 	g.ReleaseLink = releaseLink
 
@@ -112,16 +115,32 @@ func (g *GithubRelease) InstallLatestRelease() error {
 }
 
 func NewGithubRelease(repository string, fileConfig fileUtils.FileConfig) *GithubRelease {
+	assetConfig := DefaultAssetMatchingConfig()
+	assetConfig.ProjectName = fileConfig.ProjectName
+	assetConfig.IsDirectBinary = fileConfig.IsDirectBinary
+
+	// Configure asset matching strategy based on FileConfig
+	switch fileConfig.AssetMatchingStrategy {
+	case "standard":
+		assetConfig.Strategy = StandardStrategy
+	case "flexible":
+		assetConfig.Strategy = FlexibleStrategy
+	case "custom":
+		assetConfig.Strategy = CustomStrategy
+		assetConfig.CustomPatterns = fileConfig.CustomAssetPatterns
+	default:
+		assetConfig.Strategy = FlexibleStrategy
+	}
+
 	return &GithubRelease{
-		Repository: repository,
-		Config:     fileConfig,
+		Repository:          repository,
+		Config:              fileConfig,
+		AssetMatchingConfig: assetConfig,
 	}
 }
 
 func NewGithubReleaseWithToken(repository string, token string, fileConfig fileUtils.FileConfig) *GithubRelease {
-	return &GithubRelease{
-		Repository: repository,
-		Token:      token,
-		Config:     fileConfig,
-	}
+	release := NewGithubRelease(repository, fileConfig)
+	release.Token = token
+	return release
 }

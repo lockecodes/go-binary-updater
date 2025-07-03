@@ -44,6 +44,7 @@ type GitLabRelease struct {
 	Config      fileUtils.FileConfig `json:"config"`
 	GitLabConfig GitLabConfig        `json:"gitlab_config"` // Enhanced configuration
 	httpClient  *RetryableHTTPClient // HTTP client with retry logic
+	AssetMatchingConfig AssetMatchingConfig `json:"asset_matching_config"` // Configuration for asset matching
 }
 
 func (r *GitLabRelease) getTempSourceArchivePath() string {
@@ -174,10 +175,10 @@ func (r *GitLabRelease) GetLatestRelease() error {
 	r.Version = latestRelease.TagName
 
 	// Find platform-specific release link
-	releaseLink := latestRelease.GetReleaseLink()
+	releaseLink := latestRelease.GetReleaseLinkWithConfig(r.AssetMatchingConfig)
 	if releaseLink == "" {
-		return fmt.Errorf("no suitable asset found for current platform (%s_%s) in GitLab release %s",
-			runtime.GOOS, MapArch(runtime.GOARCH), latestRelease.TagName)
+		return fmt.Errorf("no suitable asset found for current platform (%s/%s) in GitLab release %s",
+			runtime.GOOS, runtime.GOARCH, latestRelease.TagName)
 	}
 
 	r.ReleaseLink = releaseLink
@@ -219,36 +220,64 @@ func NewGitlabRelease(projectId string, fileConfig fileUtils.FileConfig) *GitLab
 		config.BaseURL = baseURL
 	}
 
+	// Configure asset matching
+	assetConfig := DefaultAssetMatchingConfig()
+	assetConfig.ProjectName = fileConfig.ProjectName
+	assetConfig.IsDirectBinary = fileConfig.IsDirectBinary
+
+	// Configure asset matching strategy based on FileConfig
+	switch fileConfig.AssetMatchingStrategy {
+	case "standard":
+		assetConfig.Strategy = StandardStrategy
+	case "flexible":
+		assetConfig.Strategy = FlexibleStrategy
+	case "custom":
+		assetConfig.Strategy = CustomStrategy
+		assetConfig.CustomPatterns = fileConfig.CustomAssetPatterns
+	default:
+		assetConfig.Strategy = FlexibleStrategy
+	}
+
 	return &GitLabRelease{
-		ProjectId:    projectId,
-		Config:       fileConfig,
-		GitLabConfig: config,
+		ProjectId:           projectId,
+		Config:              fileConfig,
+		GitLabConfig:        config,
+		AssetMatchingConfig: assetConfig,
 	}
 }
 
 // NewGitlabReleaseWithToken creates a new GitLab release instance with authentication token
 func NewGitlabReleaseWithToken(projectId string, token string, fileConfig fileUtils.FileConfig) *GitLabRelease {
-	config := DefaultGitLabConfig()
-	config.Token = token
-
-	// Check for custom base URL in environment
-	if baseURL := os.Getenv("GITLAB_API_URL"); baseURL != "" {
-		config.BaseURL = baseURL
-	}
-
-	return &GitLabRelease{
-		ProjectId:    projectId,
-		Config:       fileConfig,
-		GitLabConfig: config,
-	}
+	release := NewGitlabRelease(projectId, fileConfig)
+	release.GitLabConfig.Token = token
+	return release
 }
 
 // NewGitlabReleaseWithConfig creates a new GitLab release instance with full configuration
 func NewGitlabReleaseWithConfig(projectId string, fileConfig fileUtils.FileConfig, gitlabConfig GitLabConfig) *GitLabRelease {
+	// Configure asset matching
+	assetConfig := DefaultAssetMatchingConfig()
+	assetConfig.ProjectName = fileConfig.ProjectName
+	assetConfig.IsDirectBinary = fileConfig.IsDirectBinary
+
+	// Configure asset matching strategy based on FileConfig
+	switch fileConfig.AssetMatchingStrategy {
+	case "standard":
+		assetConfig.Strategy = StandardStrategy
+	case "flexible":
+		assetConfig.Strategy = FlexibleStrategy
+	case "custom":
+		assetConfig.Strategy = CustomStrategy
+		assetConfig.CustomPatterns = fileConfig.CustomAssetPatterns
+	default:
+		assetConfig.Strategy = FlexibleStrategy
+	}
+
 	return &GitLabRelease{
-		ProjectId:    projectId,
-		Config:       fileConfig,
-		GitLabConfig: gitlabConfig,
+		ProjectId:           projectId,
+		Config:              fileConfig,
+		GitLabConfig:        gitlabConfig,
+		AssetMatchingConfig: assetConfig,
 	}
 }
 

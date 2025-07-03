@@ -32,18 +32,42 @@ type GithubReleaseResponse struct {
 }
 
 func (g *GithubReleaseResponse) GetReleaseLink() string {
+	return g.GetReleaseLinkWithConfig(DefaultAssetMatchingConfig())
+}
+
+func (g *GithubReleaseResponse) GetReleaseLinkWithConfig(config AssetMatchingConfig) string {
+	// Extract asset names
+	assetNames := make([]string, len(g.Assets))
+	assetMap := make(map[string]string)
+
+	for i, asset := range g.Assets {
+		assetNames[i] = asset.Name
+		assetMap[asset.Name] = asset.BrowserDownloadUrl
+	}
+
+	// Use asset matcher to find the best match
+	matcher := NewAssetMatcher(config)
+	bestMatch, err := matcher.FindBestMatch(assetNames)
+	if err != nil {
+		// Fallback to legacy matching for backward compatibility
+		return g.getLegacyReleaseLink()
+	}
+
+	return assetMap[bestMatch]
+}
+
+// getLegacyReleaseLink provides backward compatibility with the old matching logic
+func (g *GithubReleaseResponse) getLegacyReleaseLink() string {
 	runtimeOS := runtime.GOOS
 	arch := MapArch(runtime.GOARCH)
 
 	title := cases.Title(language.AmericanEnglish)
 	searchKey := fmt.Sprintf("%s_%s", title.String(runtimeOS), arch)
 
-	releaseLink := ""
 	for _, asset := range g.Assets {
 		if strings.Contains(asset.Name, searchKey) {
-			releaseLink = asset.BrowserDownloadUrl
-			break
+			return asset.BrowserDownloadUrl
 		}
 	}
-	return releaseLink
+	return ""
 }

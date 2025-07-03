@@ -26,6 +26,32 @@ type GitlabReleaseResponse struct {
 }
 
 func (g *GitlabReleaseResponse) GetReleaseLink() string {
+	return g.GetReleaseLinkWithConfig(DefaultAssetMatchingConfig())
+}
+
+func (g *GitlabReleaseResponse) GetReleaseLinkWithConfig(config AssetMatchingConfig) string {
+	// Extract asset names
+	assetNames := make([]string, len(g.Assets.Links))
+	assetMap := make(map[string]string)
+
+	for i, link := range g.Assets.Links {
+		assetNames[i] = link.Name
+		assetMap[link.Name] = link.DirectAssetUrl
+	}
+
+	// Use asset matcher to find the best match
+	matcher := NewAssetMatcher(config)
+	bestMatch, err := matcher.FindBestMatch(assetNames)
+	if err != nil {
+		// Fallback to legacy matching for backward compatibility
+		return g.getLegacyReleaseLink()
+	}
+
+	return assetMap[bestMatch]
+}
+
+// getLegacyReleaseLink provides backward compatibility with the old matching logic
+func (g *GitlabReleaseResponse) getLegacyReleaseLink() string {
 	runtimeOS := runtime.GOOS
 	arch := MapArch(runtime.GOARCH)
 
