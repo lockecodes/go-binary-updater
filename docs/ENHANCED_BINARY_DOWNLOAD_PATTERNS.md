@@ -77,9 +77,17 @@ config := release.AssetMatchingConfig{
 ### URL Construction
 
 CDN URLs are constructed using placeholders:
-- `{version}`: Release version (e.g., "v3.12.0")
+- `{version}`: Release version (e.g., "v3.12.0" or "3.12.0")
 - `{os}`: Operating system (e.g., "linux", "darwin", "windows")
 - `{arch}`: Architecture (e.g., "amd64", "arm64")
+
+### Version Format Configuration
+
+The `CDNVersionFormat` field controls how version strings are formatted for CDN URLs:
+
+- **`"with-v"`**: Ensures version has "v" prefix (e.g., "3.18.3" → "v3.18.3")
+- **`"without-v"`**: Ensures version doesn't have "v" prefix (e.g., "v3.18.3" → "3.18.3")
+- **`"as-is"`**: Uses version exactly as provided (default)
 
 Example: `https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz`
 
@@ -90,6 +98,7 @@ Example: `https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz`
 config := release.GetHelmCDNConfig()
 // CDN Base URL: https://get.helm.sh/
 // CDN Pattern: helm-{version}-{os}-{arch}.tar.gz
+// CDN Version Format: "with-v" (ensures v3.18.3 format)
 // Extraction: Binary located in {os}-{arch}/helm subdirectory
 ```
 
@@ -98,6 +107,7 @@ config := release.GetHelmCDNConfig()
 config := release.GetKubectlCDNConfig()
 // CDN Base URL: https://dl.k8s.io/release/
 // CDN Pattern: {version}/bin/{os}/{arch}/kubectl
+// CDN Version Format: "as-is" (uses version exactly as provided)
 // Direct Binary: No extraction required
 ```
 
@@ -106,6 +116,7 @@ config := release.GetKubectlCDNConfig()
 config := release.GetTerraformConfig()
 // CDN Base URL: https://releases.hashicorp.com/terraform/
 // CDN Pattern: {version}/terraform_{version}_{os}_{arch}.zip
+// CDN Version Format: "without-v" (removes v prefix: v1.5.0 → 1.5.0)
 // Hybrid Strategy: Try GitHub first, then CDN
 ```
 

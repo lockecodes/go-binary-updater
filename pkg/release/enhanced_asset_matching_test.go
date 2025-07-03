@@ -1,6 +1,7 @@
 package release
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -178,6 +179,50 @@ func TestHybridStrategy_FallbackToCDN(t *testing.T) {
 	}
 }
 
+func TestFormatVersionForCDN(t *testing.T) {
+	// Test version formatting for different CDN requirements
+	testCases := []struct {
+		version  string
+		format   string
+		expected string
+	}{
+		{"3.18.3", "with-v", "v3.18.3"},
+		{"v3.18.3", "with-v", "v3.18.3"},
+		{"v3.18.3", "without-v", "3.18.3"},
+		{"3.18.3", "without-v", "3.18.3"},
+		{"v3.18.3", "as-is", "v3.18.3"},
+		{"3.18.3", "as-is", "3.18.3"},
+		{"1.5.0", "unknown-format", "1.5.0"}, // Should default to as-is
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%s_%s", tc.version, tc.format), func(t *testing.T) {
+			result := FormatVersionForCDN(tc.version, tc.format)
+			if result != tc.expected {
+				t.Errorf("Expected %s, got %s", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestHelmCDNVersionFormat(t *testing.T) {
+	// Test that Helm CDN configuration uses correct version format
+	config := GetHelmCDNConfig()
+
+	if config.CDNVersionFormat != "with-v" {
+		t.Errorf("Expected Helm CDN version format to be 'with-v', got '%s'", config.CDNVersionFormat)
+	}
+
+	// Test URL construction
+	downloader := NewCDNDownloader(config.CDNBaseURL, config.CDNPattern)
+	url := downloader.ConstructURLWithVersionFormat("3.18.3", "linux", "amd64", config.CDNVersionFormat)
+
+	expected := "https://get.helm.sh/helm-v3.18.3-linux-amd64.tar.gz"
+	if url != expected {
+		t.Errorf("Expected URL %s, got %s", expected, url)
+	}
+}
+
 func TestValidateCDNConfig(t *testing.T) {
 	// Test CDN configuration validation
 	testCases := []struct {
@@ -188,10 +233,11 @@ func TestValidateCDNConfig(t *testing.T) {
 		{
 			name: "Valid CDN config",
 			config: AssetMatchingConfig{
-				Strategy:    CDNStrategy,
-				CDNBaseURL:  "https://example.com/",
-				CDNPattern:  "binary-{version}-{os}-{arch}.tar.gz",
-				IsDirectBinary: false,
+				Strategy:         CDNStrategy,
+				CDNBaseURL:       "https://example.com/",
+				CDNPattern:       "binary-{version}-{os}-{arch}.tar.gz",
+				CDNVersionFormat: "with-v",
+				IsDirectBinary:   false,
 			},
 			expectError: false,
 		},
@@ -230,6 +276,17 @@ func TestValidateCDNConfig(t *testing.T) {
 				IsDirectBinary: true,
 			},
 			expectError: false,
+		},
+		{
+			name: "Invalid version format",
+			config: AssetMatchingConfig{
+				Strategy:         CDNStrategy,
+				CDNBaseURL:       "https://example.com/",
+				CDNPattern:       "binary-{version}",
+				CDNVersionFormat: "invalid-format",
+				IsDirectBinary:   true,
+			},
+			expectError: true,
 		},
 	}
 
