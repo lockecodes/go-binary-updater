@@ -90,6 +90,7 @@ func exampleHelmWithCDN() {
 	fmt.Printf("  Strategy: CDN\n")
 	fmt.Printf("  CDN Base URL: %s\n", assetConfig.CDNBaseURL)
 	fmt.Printf("  CDN Pattern: %s\n", assetConfig.CDNPattern)
+	fmt.Printf("  CDN Version Format: %s\n", assetConfig.CDNVersionFormat)
 	fmt.Printf("  Extraction Config: %+v\n", assetConfig.ExtractionConfig)
 	
 	// In a real scenario, you would call:
@@ -129,6 +130,7 @@ func exampleKubectlWithGoogleCDN() {
 	fmt.Printf("  Strategy: CDN\n")
 	fmt.Printf("  CDN Base URL: %s\n", assetConfig.CDNBaseURL)
 	fmt.Printf("  CDN Pattern: %s\n", assetConfig.CDNPattern)
+	fmt.Printf("  CDN Version Format: %s\n", assetConfig.CDNVersionFormat)
 	fmt.Printf("  Direct Binary: %t\n", assetConfig.IsDirectBinary)
 	
 	// In a real scenario, you would call:
@@ -168,6 +170,7 @@ func exampleTerraformWithHybridStrategy() {
 	fmt.Printf("  Strategy: Hybrid (GitHub first, then CDN)\n")
 	fmt.Printf("  CDN Base URL: %s\n", assetConfig.CDNBaseURL)
 	fmt.Printf("  CDN Pattern: %s\n", assetConfig.CDNPattern)
+	fmt.Printf("  CDN Version Format: %s\n", assetConfig.CDNVersionFormat)
 	fmt.Printf("  File Extensions: %v\n", assetConfig.FileExtensions)
 	
 	// In a real scenario, you would call:

@@ -218,7 +218,11 @@ func (r *GitLabRelease) downloadFromCDN() error {
 	}
 
 	cdnDownloader := NewCDNDownloader(r.AssetMatchingConfig.CDNBaseURL, r.AssetMatchingConfig.CDNPattern)
-	return cdnDownloader.Download(r.Version, r.Config.SourceArchivePath)
+	versionFormat := r.AssetMatchingConfig.CDNVersionFormat
+	if versionFormat == "" {
+		versionFormat = "as-is" // Default to as-is if not specified
+	}
+	return cdnDownloader.DownloadWithVersionFormat(r.Version, r.Config.SourceArchivePath, versionFormat)
 }
 
 func (r *GitLabRelease) InstallLatestRelease() error {

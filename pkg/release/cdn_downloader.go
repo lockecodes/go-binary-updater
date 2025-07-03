@@ -30,28 +30,55 @@ func NewCDNDownloader(baseURL, pattern string) *CDNDownloader {
 
 // ConstructURL builds the download URL for the given version and platform
 func (c *CDNDownloader) ConstructURL(version, os, arch string) string {
+	return c.ConstructURLWithVersionFormat(version, os, arch, "as-is")
+}
+
+// ConstructURLWithVersionFormat builds the download URL with configurable version formatting
+func (c *CDNDownloader) ConstructURLWithVersionFormat(version, os, arch, versionFormat string) string {
 	url := c.BaseURL + c.Pattern
-	
+
+	// Format version according to the specified format
+	versionToUse := FormatVersionForCDN(version, versionFormat)
+
 	// Replace placeholders
-	url = strings.ReplaceAll(url, "{version}", version)
+	url = strings.ReplaceAll(url, "{version}", versionToUse)
 	url = strings.ReplaceAll(url, "{os}", os)
 	url = strings.ReplaceAll(url, "{arch}", arch)
-	
-	// Handle version variations (remove 'v' prefix if present in pattern but not in version)
-	if strings.Contains(c.Pattern, "{version}") && strings.HasPrefix(version, "v") {
-		versionWithoutV := strings.TrimPrefix(version, "v")
-		url = strings.ReplaceAll(url, version, versionWithoutV)
-	}
-	
+
 	return url
+}
+
+// FormatVersionForCDN formats a version string according to CDN requirements
+func FormatVersionForCDN(version, format string) string {
+	switch format {
+	case "with-v":
+		// Ensure version has "v" prefix
+		if !strings.HasPrefix(version, "v") {
+			return "v" + version
+		}
+		return version
+	case "without-v":
+		// Ensure version doesn't have "v" prefix
+		return strings.TrimPrefix(version, "v")
+	case "as-is":
+		fallthrough
+	default:
+		// Use version as provided
+		return version
+	}
 }
 
 // Download downloads a binary from the CDN to the specified path
 func (c *CDNDownloader) Download(version, destinationPath string) error {
+	return c.DownloadWithVersionFormat(version, destinationPath, "as-is")
+}
+
+// DownloadWithVersionFormat downloads a binary from the CDN with configurable version formatting
+func (c *CDNDownloader) DownloadWithVersionFormat(version, destinationPath, versionFormat string) error {
 	// Use current platform for CDN downloads
 	osName := runtime.GOOS
 	archName := MapArch(runtime.GOARCH)
-	
+
 	// Map OS names for CDN compatibility
 	switch osName {
 	case "darwin":
@@ -60,8 +87,8 @@ func (c *CDNDownloader) Download(version, destinationPath string) error {
 		// Some CDNs expect "windows", others expect "win"
 		// This will be handled by the specific CDN configuration
 	}
-	
-	url := c.ConstructURL(version, osName, archName)
+
+	url := c.ConstructURLWithVersionFormat(version, osName, archName, versionFormat)
 	
 	fmt.Printf("Downloading from CDN: %s\n", url)
 	
@@ -109,6 +136,7 @@ func GetHelmCDNConfig() AssetMatchingConfig {
 	config.Strategy = CDNStrategy
 	config.CDNBaseURL = "https://get.helm.sh/"
 	config.CDNPattern = "helm-{version}-{os}-{arch}.tar.gz"
+	config.CDNVersionFormat = "with-v"  // Helm CDN requires 'v' prefix (e.g., v3.18.3)
 	config.IsDirectBinary = false
 	config.ProjectName = "helm"
 	config.ExtractionConfig = &ExtractionConfig{
@@ -123,6 +151,7 @@ func GetKubectlCDNConfig() AssetMatchingConfig {
 	config.Strategy = CDNStrategy
 	config.CDNBaseURL = "https://dl.k8s.io/release/"
 	config.CDNPattern = "{version}/bin/{os}/{arch}/kubectl"
+	config.CDNVersionFormat = "as-is"  // kubectl CDN uses version as-is (e.g., v1.28.0)
 	config.IsDirectBinary = true
 	config.ProjectName = "kubectl"
 	// Add .exe extension for Windows
@@ -163,6 +192,7 @@ func GetTerraformConfig() AssetMatchingConfig {
 	config.Strategy = HybridStrategy // Try GitHub first, then CDN
 	config.CDNBaseURL = "https://releases.hashicorp.com/terraform/"
 	config.CDNPattern = "{version}/terraform_{version}_{os}_{arch}.zip"
+	config.CDNVersionFormat = "without-v"  // Terraform CDN uses version without 'v' prefix (e.g., 1.5.0)
 	config.IsDirectBinary = false
 	config.ProjectName = "terraform"
 	config.FileExtensions = []string{".zip"}
@@ -204,12 +234,12 @@ func ValidateCDNConfig(config AssetMatchingConfig) error {
 		if config.CDNPattern == "" {
 			return fmt.Errorf("CDN strategy requires CDNPattern to be set")
 		}
-		
+
 		// Validate that pattern contains required placeholders
 		if !strings.Contains(config.CDNPattern, "{version}") {
 			return fmt.Errorf("CDN pattern must contain {version} placeholder")
 		}
-		
+
 		// For non-direct binaries, we need OS and arch placeholders
 		if !config.IsDirectBinary {
 			if !strings.Contains(config.CDNPattern, "{os}") {
@@ -219,8 +249,23 @@ func ValidateCDNConfig(config AssetMatchingConfig) error {
 				return fmt.Errorf("CDN pattern for archived binaries must contain {arch} placeholder")
 			}
 		}
+
+		// Validate version format if specified
+		if config.CDNVersionFormat != "" {
+			validFormats := []string{"as-is", "with-v", "without-v"}
+			valid := false
+			for _, format := range validFormats {
+				if config.CDNVersionFormat == format {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				return fmt.Errorf("CDN version format must be one of: %v, got: %s", validFormats, config.CDNVersionFormat)
+			}
+		}
 	}
-	
+
 	return nil
 }
 

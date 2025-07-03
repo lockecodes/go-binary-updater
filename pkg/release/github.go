@@ -126,7 +126,11 @@ func (g *GithubRelease) downloadFromCDN() error {
 	}
 
 	cdnDownloader := NewCDNDownloader(g.AssetMatchingConfig.CDNBaseURL, g.AssetMatchingConfig.CDNPattern)
-	return cdnDownloader.Download(g.Version, g.Config.SourceArchivePath)
+	versionFormat := g.AssetMatchingConfig.CDNVersionFormat
+	if versionFormat == "" {
+		versionFormat = "as-is" // Default to as-is if not specified
+	}
+	return cdnDownloader.DownloadWithVersionFormat(g.Version, g.Config.SourceArchivePath, versionFormat)
 }
 
 func (g *GithubRelease) InstallLatestRelease() error {
