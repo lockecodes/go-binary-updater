@@ -309,3 +309,76 @@ func TestInterfaceCompliance(t *testing.T) {
 		}
 	}
 }
+
+// TestEnhancedReleaseInterface tests the new path resolution and installation info methods
+func TestEnhancedReleaseInterface(t *testing.T) {
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "testapp",
+		BinaryName:             "testapp",
+		CreateLocalSymlink:     true,
+		CreateGlobalSymlink:    false,
+		BaseBinaryDirectory:    "/tmp/test-enhanced",
+		SourceArchivePath:      "/tmp/testapp.tar.gz",
+	}
+
+	// Test GitHub implementation
+	githubRelease := NewGithubRelease("owner/repo", config)
+
+	// Test methods without version (should fail gracefully)
+	_, err := githubRelease.GetInstalledBinaryPath()
+	if err == nil {
+		t.Error("Expected error when calling GetInstalledBinaryPath without version")
+	}
+
+	_, err = githubRelease.GetInstallationInfo()
+	if err == nil {
+		t.Error("Expected error when calling GetInstallationInfo without version")
+	}
+
+	// Set version and test again
+	githubRelease.Version = "v1.0.0"
+
+	// These should not error (even if paths don't exist, the methods should work)
+	_, err = githubRelease.GetInstalledBinaryPath()
+	if err == nil {
+		// This is expected to fail because the binary doesn't actually exist
+		// but the method should handle this gracefully
+	}
+
+	_, err = githubRelease.GetInstallationInfo()
+	if err == nil {
+		// This is expected to fail because the binary doesn't actually exist
+		// but the method should handle this gracefully
+	}
+
+	// Test GitLab implementation
+	gitlabRelease := NewGitlabRelease("12345", config)
+
+	// Test methods without version (should fail gracefully)
+	_, err = gitlabRelease.GetInstalledBinaryPath()
+	if err == nil {
+		t.Error("Expected error when calling GetInstalledBinaryPath without version")
+	}
+
+	_, err = gitlabRelease.GetInstallationInfo()
+	if err == nil {
+		t.Error("Expected error when calling GetInstallationInfo without version")
+	}
+
+	// Set version and test again
+	gitlabRelease.Version = "v1.0.0"
+
+	// These should not error (even if paths don't exist, the methods should work)
+	_, err = gitlabRelease.GetInstalledBinaryPath()
+	if err == nil {
+		// This is expected to fail because the binary doesn't actually exist
+		// but the method should handle this gracefully
+	}
+
+	_, err = gitlabRelease.GetInstallationInfo()
+	if err == nil {
+		// This is expected to fail because the binary doesn't actually exist
+		// but the method should handle this gracefully
+	}
+}

@@ -11,9 +11,10 @@ A powerful Go library that makes it easy to automatically update CLI binaries fr
 - **Multi-Platform Support**: Automatically detects and downloads the correct binary for your OS and architecture
 - **Flexible Asset Matching**: Supports various naming conventions (k0s, kubectl, helm, terraform, etc.)
 - **Direct Binary Support**: Handles both archived and direct binary downloads
+- **Enhanced Symlink Management**: Automatic symlink creation with graceful fallback and refined control
 - **Dual Provider Support**: Works with both GitHub and GitLab releases
 - **Interface-Based Design**: Easily switch between providers or add new ones
-- **Versioned Installation**: Maintains multiple versions with automatic symlink management
+- **Versioned Installation**: Maintains multiple versions with intelligent path resolution
 - **Authentication Support**: Supports GitHub tokens and GitLab access tokens
 - **Comprehensive Testing**: Extensive test suite with mock servers
 - **Production Ready**: Used in production environments with robust error handling
@@ -237,11 +238,12 @@ Examples:
 - [GitHub Usage Guide](docs/GITHUB_USAGE.md) - Complete GitHub integration documentation
 - [GitLab Usage Guide](docs/GITLAB_USAGE.md) - Complete GitLab integration documentation
 - [Flexible Asset Matching](docs/FLEXIBLE_ASSET_MATCHING.md) - Guide for different project naming conventions
+- [Enhanced Symlink Management](docs/ENHANCED_SYMLINK_MANAGEMENT.md) - Symlink control and path resolution
 
 ### Examples
 - [GitHub Examples](examples/github_example.go) - Working GitHub examples
 - [GitLab Examples](examples/gitlab_example.go) - Working GitLab examples
-- [k0s Example](examples/k0s_example.go) - Direct binary download example
+- [k0s Example](examples/k0s_example.go) - Direct binary download with enhanced symlink management
 
 ## 🧪 Testing
 

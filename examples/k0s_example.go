@@ -16,10 +16,11 @@ func main() {
 		VersionedDirectoryName: "versions",
 		SourceBinaryName:       "k0s",           // Binary name in the release (for direct binaries, this is the final name)
 		BinaryName:             "k0s",           // Name to use for installed binary
-		CreateGlobalSymlink:    true,            // Create symlink in PATH
+		CreateLocalSymlink:     true,            // Create local symlink (default, core value proposition)
+		CreateGlobalSymlink:    true,            // Create global symlink in PATH (requires sudo)
 		BaseBinaryDirectory:    "/home/user/.local/bin",
 		SourceArchivePath:      "/tmp/k0s-latest", // Download location (no extension for direct binary)
-		
+
 		// Enhanced configuration for k0s
 		IsDirectBinary:         true,            // k0s releases are direct binaries, not archives
 		ProjectName:            "k0s",           // Project name for asset matching
@@ -51,6 +52,33 @@ func main() {
 	}
 
 	fmt.Printf("Successfully installed k0s version %s!\n", githubRelease.Version)
+
+	// Demonstrate the enhanced path resolution API
+	binaryPath, err := githubRelease.GetInstalledBinaryPath()
+	if err != nil {
+		log.Printf("Warning: Could not get binary path: %v", err)
+	} else {
+		fmt.Printf("k0s is available at: %s\n", binaryPath)
+	}
+
+	// Demonstrate the installation information API
+	info, err := githubRelease.GetInstallationInfo()
+	if err != nil {
+		log.Printf("Warning: Could not get installation info: %v", err)
+	} else {
+		fmt.Printf("Installation Details:\n")
+		fmt.Printf("  Version: %s\n", info.Version)
+		fmt.Printf("  Type: %s\n", info.InstallationType)
+		fmt.Printf("  Binary Path: %s\n", info.BinaryPath)
+		fmt.Printf("  Symlink Status: %s\n", info.SymlinkStatus)
+		if info.LocalSymlinkCreated {
+			fmt.Printf("  Local Symlink: %s\n", info.LocalSymlinkPath)
+		}
+		if info.GlobalSymlinkNeeded {
+			fmt.Printf("  Global Symlink: %s (requires sudo)\n", info.GlobalSymlinkPath)
+		}
+	}
+
 	fmt.Println("You can now use k0s from your command line.")
 }
 
@@ -194,7 +222,8 @@ func exampleEnvironmentConfiguration() {
 		VersionedDirectoryName: "versions",
 		SourceBinaryName:       "k0s",
 		BinaryName:             "k0s",
-		CreateGlobalSymlink:    true,
+		CreateLocalSymlink:     true,  // Core value proposition: local symlinks
+		CreateGlobalSymlink:    true,  // Optional: global symlinks
 		BaseBinaryDirectory:    "/home/user/.local/bin",
 		SourceArchivePath:      "/tmp/k0s-latest",
 		IsDirectBinary:         true,
@@ -204,8 +233,102 @@ func exampleEnvironmentConfiguration() {
 
 	// The library will automatically use the GITHUB_TOKEN environment variable
 	githubRelease := release.NewGithubRelease("k0sproject/k0s", config)
-	
+
 	fmt.Println("GitHub release configured with environment token")
 	fmt.Printf("Repository: %s\n", githubRelease.Repository)
 	fmt.Printf("Token configured: %t\n", githubRelease.Token != "")
+}
+
+// Example function showing different symlink configurations
+func exampleSymlinkConfigurations() {
+	fmt.Println("Symlink Configuration Examples:")
+
+	// Default configuration (preserves symlink-first approach)
+	defaultConfig := fileUtils.DefaultFileConfig()
+	fmt.Printf("Default config - Local symlinks: %t, Global symlinks: %t\n",
+		defaultConfig.CreateLocalSymlink, defaultConfig.CreateGlobalSymlink)
+
+	// Configuration for environments where symlinks can't be created
+	noSymlinkConfig := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "myapp",
+		BinaryName:             "myapp",
+		CreateLocalSymlink:     false, // Disable local symlinks
+		CreateGlobalSymlink:    false, // Disable global symlinks
+		BaseBinaryDirectory:    "/opt/myapp",
+		SourceArchivePath:      "/tmp/myapp.tar.gz",
+		IsDirectBinary:         false,
+		AssetMatchingStrategy:  "flexible",
+	}
+
+	fmt.Println("\nNo-symlink configuration (for restricted environments):")
+	fmt.Printf("  Local symlinks: %t\n", noSymlinkConfig.CreateLocalSymlink)
+	fmt.Printf("  Global symlinks: %t\n", noSymlinkConfig.CreateGlobalSymlink)
+	fmt.Println("  Binary will be available at versioned path only")
+
+	// Configuration for CI/CD environments
+	ciConfig := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "tool",
+		BinaryName:             "tool",
+		CreateLocalSymlink:     true,  // Enable for easy access
+		CreateGlobalSymlink:    false, // Disable (no sudo in CI)
+		BaseBinaryDirectory:    "/tmp/ci-tools",
+		SourceArchivePath:      "/tmp/tool.tar.gz",
+		IsDirectBinary:         false,
+		AssetMatchingStrategy:  "flexible",
+	}
+
+	fmt.Println("\nCI/CD configuration:")
+	fmt.Printf("  Local symlinks: %t (easy access)\n", ciConfig.CreateLocalSymlink)
+	fmt.Printf("  Global symlinks: %t (no sudo in CI)\n", ciConfig.CreateGlobalSymlink)
+
+	// Configuration for system-wide installation
+	systemConfig := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "systemtool",
+		BinaryName:             "systemtool",
+		CreateLocalSymlink:     true,  // Local access
+		CreateGlobalSymlink:    true,  // System-wide access
+		BaseBinaryDirectory:    "/opt/systemtool",
+		SourceArchivePath:      "/tmp/systemtool.tar.gz",
+		IsDirectBinary:         false,
+		AssetMatchingStrategy:  "flexible",
+	}
+
+	fmt.Println("\nSystem-wide configuration:")
+	fmt.Printf("  Local symlinks: %t\n", systemConfig.CreateLocalSymlink)
+	fmt.Printf("  Global symlinks: %t (requires sudo)\n", systemConfig.CreateGlobalSymlink)
+}
+
+// Example function showing graceful symlink fallback
+func exampleSymlinkFallback() {
+	fmt.Println("Symlink Fallback Example:")
+
+	// This demonstrates how the library handles symlink creation failures gracefully
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "myapp",
+		BinaryName:             "myapp",
+		CreateLocalSymlink:     true,  // Attempt to create symlinks
+		CreateGlobalSymlink:    false,
+		BaseBinaryDirectory:    "/tmp/fallback-test",
+		SourceArchivePath:      "/tmp/myapp.tar.gz",
+		IsDirectBinary:         false,
+		AssetMatchingStrategy:  "flexible",
+	}
+
+	fmt.Println("Configuration attempts symlink creation but falls back gracefully:")
+	fmt.Printf("  If symlink creation succeeds: Binary available via symlink\n")
+	fmt.Printf("  If symlink creation fails: Binary still available at versioned path\n")
+	fmt.Printf("  Installation continues successfully in both cases\n")
+
+	// Example of checking installation status
+	version := "v1.0.0"
+	if info, err := fileUtils.GetInstallationInfo(config, version); err == nil {
+		fmt.Printf("\nInstallation info would show:\n")
+		fmt.Printf("  Symlink Status: %s\n", info.SymlinkStatus)
+		fmt.Printf("  Binary Path: %s\n", info.BinaryPath)
+		fmt.Printf("  Fallback ensures binary is always accessible\n")
+	}
 }
