@@ -17,6 +17,10 @@ const (
 	FlexibleStrategy
 	// CustomStrategy uses user-defined patterns
 	CustomStrategy
+	// CDNStrategy downloads from external CDN instead of GitHub/GitLab releases
+	CDNStrategy
+	// HybridStrategy tries GitHub/GitLab first, then falls back to CDN
+	HybridStrategy
 )
 
 // AssetMatchingConfig configures how assets are matched and handled
@@ -28,6 +32,19 @@ type AssetMatchingConfig struct {
 	ArchitectureAliases map[string][]string  `json:"architecture_aliases"` // Custom architecture aliases
 	OSAliases          map[string][]string   `json:"os_aliases"`          // Custom OS aliases
 	FileExtensions     []string              `json:"file_extensions"`     // Expected file extensions
+
+	// Enhanced filtering and CDN support
+	ExcludePatterns  []string          `json:"exclude_patterns"`  // Patterns to explicitly exclude (airgap, signatures)
+	PriorityPatterns []string          `json:"priority_patterns"` // Patterns that get higher priority scores
+	CDNBaseURL       string            `json:"cdn_base_url"`      // Base URL for CDN downloads (e.g., get.helm.sh)
+	CDNPattern       string            `json:"cdn_pattern"`       // URL pattern for CDN downloads with {version}, {os}, {arch} placeholders
+	ExtractionConfig *ExtractionConfig `json:"extraction_config"` // Configuration for complex archive extraction
+}
+
+// ExtractionConfig configures how binaries are extracted from archives
+type ExtractionConfig struct {
+	StripComponents int    `json:"strip_components"` // Number of directory components to strip (like tar --strip-components)
+	BinaryPath      string `json:"binary_path"`      // Specific path to binary within archive (e.g., "linux-amd64/helm")
 }
 
 // DefaultAssetMatchingConfig returns a sensible default configuration
@@ -36,6 +53,15 @@ func DefaultAssetMatchingConfig() AssetMatchingConfig {
 		Strategy:       FlexibleStrategy,
 		IsDirectBinary: false,
 		FileExtensions: []string{".tar.gz", ".zip", ".tgz", ".tar.bz2"},
+		// Default exclusion patterns for common unwanted assets
+		ExcludePatterns: []string{
+			"airgap",     // Exclude airgap bundles (k0s)
+			"\\.asc$",    // Exclude signature files
+			"\\.sig$",    // Exclude signature files
+			"\\.sha256$", // Exclude checksum files
+			"\\.sha512$", // Exclude checksum files
+			"\\.md5$",    // Exclude checksum files
+		},
 		ArchitectureAliases: map[string][]string{
 			"amd64":   {"amd64", "x86_64", "x64"},
 			"arm64":   {"arm64", "aarch64"},
@@ -81,15 +107,26 @@ func (am *AssetMatcher) FindBestMatch(assetNames []string) (string, error) {
 		return "", fmt.Errorf("no assets provided")
 	}
 
+	// Filter out excluded assets first
+	filteredAssets := am.filterExcludedAssets(assetNames)
+	if len(filteredAssets) == 0 {
+		return "", fmt.Errorf("no assets remaining after applying exclusion filters. Original assets: %v, Excluded patterns: %v",
+			assetNames, am.config.ExcludePatterns)
+	}
+
 	switch am.config.Strategy {
 	case StandardStrategy:
-		return am.findStandardMatch(assetNames)
+		return am.findStandardMatch(filteredAssets)
 	case FlexibleStrategy:
-		return am.findFlexibleMatch(assetNames)
+		return am.findFlexibleMatch(filteredAssets)
 	case CustomStrategy:
-		return am.findCustomMatch(assetNames)
+		return am.findCustomMatch(filteredAssets)
+	case CDNStrategy:
+		return am.findCDNMatch()
+	case HybridStrategy:
+		return am.findHybridMatch(filteredAssets)
 	default:
-		return am.findFlexibleMatch(assetNames)
+		return am.findFlexibleMatch(filteredAssets)
 	}
 }
 
@@ -200,6 +237,14 @@ func (am *AssetMatcher) scoreAsset(assetName string, osAliases, archAliases []st
 	// Check for common patterns
 	if am.matchesCommonPatterns(lowerName, osAliases, archAliases) {
 		score += 3
+	}
+
+	// Bonus for priority patterns
+	for _, priorityPattern := range am.config.PriorityPatterns {
+		if matched, _ := regexp.MatchString(strings.ToLower(priorityPattern), lowerName); matched {
+			score += 15 // High bonus for priority patterns
+			break
+		}
 	}
 
 	// Penalty for wrong OS/arch
@@ -346,4 +391,66 @@ func (am *AssetMatcher) expandPattern(pattern string, osAliases, archAliases []s
 	}
 
 	return pattern
+}
+
+// filterExcludedAssets removes assets that match exclusion patterns
+func (am *AssetMatcher) filterExcludedAssets(assetNames []string) []string {
+	if len(am.config.ExcludePatterns) == 0 {
+		return assetNames
+	}
+
+	var filtered []string
+	for _, assetName := range assetNames {
+		excluded := false
+		lowerName := strings.ToLower(assetName)
+
+		for _, excludePattern := range am.config.ExcludePatterns {
+			if matched, _ := regexp.MatchString(strings.ToLower(excludePattern), lowerName); matched {
+				excluded = true
+				break
+			}
+		}
+
+		if !excluded {
+			filtered = append(filtered, assetName)
+		}
+	}
+
+	return filtered
+}
+
+// findCDNMatch constructs a CDN download URL instead of matching assets
+func (am *AssetMatcher) findCDNMatch() (string, error) {
+	if am.config.CDNBaseURL == "" || am.config.CDNPattern == "" {
+		return "", fmt.Errorf("CDN strategy requires CDNBaseURL and CDNPattern to be configured")
+	}
+
+	osAliases := am.getOSAliases(am.os)
+	archAliases := am.getArchAliases(am.arch)
+
+	// Use the first (primary) alias for URL construction
+	osName := osAliases[0]
+	archName := archAliases[0]
+
+	// Construct CDN URL with placeholders
+	cdnURL := am.config.CDNBaseURL + am.config.CDNPattern
+	cdnURL = strings.ReplaceAll(cdnURL, "{os}", osName)
+	cdnURL = strings.ReplaceAll(cdnURL, "{arch}", archName)
+
+	// Note: {version} will be replaced by the calling code that has version information
+	return cdnURL, nil
+}
+
+// findHybridMatch tries flexible matching first, then falls back to CDN
+func (am *AssetMatcher) findHybridMatch(assetNames []string) (string, error) {
+	// Try flexible matching first
+	if len(assetNames) > 0 {
+		result, err := am.findFlexibleMatch(assetNames)
+		if err == nil {
+			return result, nil
+		}
+	}
+
+	// Fall back to CDN if flexible matching fails
+	return am.findCDNMatch()
 }
