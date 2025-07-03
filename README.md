@@ -11,7 +11,7 @@ A powerful Go library that makes it easy to automatically update CLI binaries fr
 - **Multi-Platform Support**: Automatically detects and downloads the correct binary for your OS and architecture
 - **Flexible Asset Matching**: Supports various naming conventions (k0s, kubectl, helm, terraform, etc.)
 - **Enhanced Asset Filtering**: Excludes airgap bundles, signature files, and unwanted packages automatically
-- **CDN Download Support**: Downloads from external CDNs (get.helm.sh, dl.k8s.io, releases.hashicorp.com)
+- **CDN Download Support**: Downloads from external CDNs (get.helm.sh, dl.k8s.io, releases.hashicorp.com) with proper strategy priority
 - **Hybrid Download Strategy**: Tries GitHub/GitLab first, then falls back to CDN sources
 - **Direct Binary Support**: Handles both archived and direct binary downloads
 - **Enhanced Symlink Management**: Automatic symlink creation with graceful fallback and refined control

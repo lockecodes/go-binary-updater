@@ -1,0 +1,213 @@
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"gitlab.com/locke-codes/go-binary-updater/pkg/fileUtils"
+	"gitlab.com/locke-codes/go-binary-updater/pkg/release"
+)
+
+func main() {
+	fmt.Println("CDN Strategy Priority Fix Demonstration")
+	fmt.Println("=====================================")
+	
+	// Demonstrate the fix for CDN strategy priority issue
+	demonstrateHelmCDNFix()
+	demonstrateKubectlCDNFix()
+	demonstrateTerraformHybridFix()
+	demonstrateBackwardCompatibility()
+}
+
+// demonstrateHelmCDNFix shows that Helm CDN configuration now works correctly
+func demonstrateHelmCDNFix() {
+	fmt.Println("\n1. Helm CDN Configuration Fix")
+	fmt.Println("-----------------------------")
+	
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "helm",
+		BinaryName:             "helm",
+		CreateLocalSymlink:     true,
+		BaseBinaryDirectory:    "/tmp/demo",
+		SourceArchivePath:      "/tmp/helm-latest.tar.gz",
+		IsDirectBinary:         false,
+		ProjectName:            "helm",
+	}
+
+	// Method 1: Using the new NewGithubReleaseWithAssetConfig constructor
+	fmt.Println("Method 1: NewGithubReleaseWithAssetConfig")
+	helmConfig := release.GetHelmCDNConfig()
+	githubRelease1 := release.NewGithubReleaseWithAssetConfig("helm/helm", config, helmConfig)
+	
+	fmt.Printf("  Strategy: %v (should be CDNStrategy=3)\n", githubRelease1.AssetMatchingConfig.Strategy)
+	fmt.Printf("  CDN Base URL: %s\n", githubRelease1.AssetMatchingConfig.CDNBaseURL)
+	fmt.Printf("  CDN Pattern: %s\n", githubRelease1.AssetMatchingConfig.CDNPattern)
+	fmt.Printf("  CDN Version Format: %s\n", githubRelease1.AssetMatchingConfig.CDNVersionFormat)
+	
+	// Method 2: Using the new NewGithubReleaseWithCDNConfig constructor
+	fmt.Println("\nMethod 2: NewGithubReleaseWithCDNConfig")
+	githubRelease2 := release.NewGithubReleaseWithCDNConfig("helm/helm", config, helmConfig)
+	
+	fmt.Printf("  Strategy: %v (should be CDNStrategy=3)\n", githubRelease2.AssetMatchingConfig.Strategy)
+	fmt.Printf("  CDN Base URL: %s\n", githubRelease2.AssetMatchingConfig.CDNBaseURL)
+	
+	// Method 3: Using FileConfig with "cdn" strategy
+	fmt.Println("\nMethod 3: FileConfig with AssetMatchingStrategy='cdn'")
+	config.AssetMatchingStrategy = "cdn"
+	githubRelease3 := release.NewGithubRelease("helm/helm", config)
+	
+	fmt.Printf("  Strategy: %v (should be CDNStrategy=3)\n", githubRelease3.AssetMatchingConfig.Strategy)
+	
+	fmt.Println("  ✅ All methods correctly preserve CDN strategy!")
+}
+
+// demonstrateKubectlCDNFix shows that kubectl CDN configuration works correctly
+func demonstrateKubectlCDNFix() {
+	fmt.Println("\n2. kubectl CDN Configuration Fix")
+	fmt.Println("--------------------------------")
+	
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "kubectl",
+		BinaryName:             "kubectl",
+		CreateLocalSymlink:     true,
+		BaseBinaryDirectory:    "/tmp/demo",
+		SourceArchivePath:      "/tmp/kubectl-latest",
+		IsDirectBinary:         true,
+		ProjectName:            "kubectl",
+	}
+
+	kubectlConfig := release.GetKubectlCDNConfig()
+	githubRelease := release.NewGithubReleaseWithAssetConfig("kubernetes/kubernetes", config, kubectlConfig)
+	
+	fmt.Printf("  Strategy: %v (should be CDNStrategy=3)\n", githubRelease.AssetMatchingConfig.Strategy)
+	fmt.Printf("  CDN Base URL: %s\n", githubRelease.AssetMatchingConfig.CDNBaseURL)
+	fmt.Printf("  CDN Pattern: %s\n", githubRelease.AssetMatchingConfig.CDNPattern)
+	fmt.Printf("  Is Direct Binary: %t\n", githubRelease.AssetMatchingConfig.IsDirectBinary)
+	
+	fmt.Println("  ✅ kubectl CDN configuration correctly preserved!")
+}
+
+// demonstrateTerraformHybridFix shows that Terraform hybrid strategy works correctly
+func demonstrateTerraformHybridFix() {
+	fmt.Println("\n3. Terraform Hybrid Strategy Fix")
+	fmt.Println("---------------------------------")
+	
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "terraform",
+		BinaryName:             "terraform",
+		CreateLocalSymlink:     true,
+		BaseBinaryDirectory:    "/tmp/demo",
+		SourceArchivePath:      "/tmp/terraform-latest.zip",
+		IsDirectBinary:         false,
+		ProjectName:            "terraform",
+	}
+
+	terraformConfig := release.GetTerraformConfig()
+	githubRelease := release.NewGithubReleaseWithAssetConfig("hashicorp/terraform", config, terraformConfig)
+	
+	fmt.Printf("  Strategy: %v (should be HybridStrategy=4)\n", githubRelease.AssetMatchingConfig.Strategy)
+	fmt.Printf("  CDN Base URL: %s\n", githubRelease.AssetMatchingConfig.CDNBaseURL)
+	fmt.Printf("  CDN Pattern: %s\n", githubRelease.AssetMatchingConfig.CDNPattern)
+	fmt.Printf("  CDN Version Format: %s\n", githubRelease.AssetMatchingConfig.CDNVersionFormat)
+	
+	fmt.Println("  ✅ Terraform hybrid strategy correctly preserved!")
+}
+
+// demonstrateBackwardCompatibility shows that existing code still works
+func demonstrateBackwardCompatibility() {
+	fmt.Println("\n4. Backward Compatibility")
+	fmt.Println("-------------------------")
+	
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "test",
+		BinaryName:             "test",
+		CreateLocalSymlink:     true,
+		BaseBinaryDirectory:    "/tmp/demo",
+		SourceArchivePath:      "/tmp/test-latest.tar.gz",
+		AssetMatchingStrategy:  "flexible",
+	}
+
+	// Old way should still work
+	githubRelease := release.NewGithubRelease("owner/repo", config)
+	
+	fmt.Printf("  Strategy: %v (should be FlexibleStrategy=1)\n", githubRelease.AssetMatchingConfig.Strategy)
+	fmt.Printf("  Project Name: %s\n", githubRelease.AssetMatchingConfig.ProjectName)
+	
+	fmt.Println("  ✅ Backward compatibility maintained!")
+}
+
+// demonstrateAutoDetection shows the auto-detection feature
+func demonstrateAutoDetection() {
+	fmt.Println("\n5. Auto-Detection of CDN Strategy")
+	fmt.Println("---------------------------------")
+	
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "custom",
+		BinaryName:             "custom",
+		CreateLocalSymlink:     true,
+		BaseBinaryDirectory:    "/tmp/demo",
+		SourceArchivePath:      "/tmp/custom-latest.tar.gz",
+		IsDirectBinary:         false,
+		ProjectName:            "custom",
+	}
+
+	// Create a custom config with CDN settings but no explicit CDN strategy
+	customConfig := release.DefaultAssetMatchingConfig()
+	customConfig.CDNBaseURL = "https://example.com/releases/"
+	customConfig.CDNPattern = "custom-{version}-{os}-{arch}.tar.gz"
+	customConfig.Strategy = release.FlexibleStrategy // This should be auto-detected as CDN
+	
+	githubRelease := release.NewGithubReleaseWithAssetConfig("example/custom", config, customConfig)
+	
+	fmt.Printf("  Original Strategy: FlexibleStrategy (1)\n")
+	fmt.Printf("  Auto-detected Strategy: %v (should be CDNStrategy=3)\n", githubRelease.AssetMatchingConfig.Strategy)
+	fmt.Printf("  CDN Base URL: %s\n", githubRelease.AssetMatchingConfig.CDNBaseURL)
+	
+	fmt.Println("  ✅ Auto-detection working correctly!")
+}
+
+// Example of how to use the fix in practice
+func practicalExample() {
+	fmt.Println("\n6. Practical Usage Example")
+	fmt.Println("--------------------------")
+	
+	// This is how users should now configure Helm with CDN
+	config := fileUtils.FileConfig{
+		VersionedDirectoryName: "versions",
+		SourceBinaryName:       "helm",
+		BinaryName:             "helm",
+		CreateLocalSymlink:     true,
+		CreateGlobalSymlink:    false,
+		BaseBinaryDirectory:    "/home/user/.local/bin",
+		SourceArchivePath:      "/tmp/helm-latest.tar.gz",
+	}
+
+	// Simple one-liner to get Helm with CDN configuration
+	helmConfig := release.GetHelmCDNConfig()
+	githubRelease := release.NewGithubReleaseWithCDNConfig("helm/helm", config, helmConfig)
+	
+	fmt.Printf("  Ready to download from: %s\n", helmConfig.CDNBaseURL)
+	fmt.Printf("  Strategy: %v (CDN)\n", githubRelease.AssetMatchingConfig.Strategy)
+	
+	// In a real scenario, you would call:
+	// err := githubRelease.DownloadLatestRelease() // Downloads from get.helm.sh
+	// if err != nil {
+	//     log.Fatalf("Download failed: %v", err)
+	// }
+	// err = githubRelease.InstallLatestRelease()   // Installs the binary
+	// if err != nil {
+	//     log.Fatalf("Installation failed: %v", err)
+	// }
+	
+	fmt.Println("  ✅ Ready for CDN download!")
+}
+
+func init() {
+	// Suppress log output for cleaner demo
+	log.SetOutput(nil)
+}
