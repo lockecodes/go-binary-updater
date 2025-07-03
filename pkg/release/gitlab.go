@@ -277,6 +277,10 @@ func NewGitlabRelease(projectId string, fileConfig fileUtils.FileConfig) *GitLab
 	case "custom":
 		assetConfig.Strategy = CustomStrategy
 		assetConfig.CustomPatterns = fileConfig.CustomAssetPatterns
+	case "cdn":
+		assetConfig.Strategy = CDNStrategy
+	case "hybrid":
+		assetConfig.Strategy = HybridStrategy
 	default:
 		assetConfig.Strategy = FlexibleStrategy
 	}
@@ -349,6 +353,51 @@ func (r *GitLabRelease) SetCustomHeaders(headers map[string]string) {
 	for key, value := range headers {
 		r.GitLabConfig.CustomHeaders[key] = value
 	}
+}
+
+// NewGitlabReleaseWithAssetConfig creates a new GitLab release instance with custom asset matching configuration
+// This preserves any CDN strategy settings in the provided configuration
+func NewGitlabReleaseWithAssetConfig(projectId string, fileConfig fileUtils.FileConfig, assetConfig AssetMatchingConfig) *GitLabRelease {
+	config := DefaultGitLabConfig()
+
+	// Check for environment variables
+	if token := os.Getenv("GITLAB_TOKEN"); token != "" {
+		config.Token = token
+	}
+	if baseURL := os.Getenv("GITLAB_API_URL"); baseURL != "" {
+		config.BaseURL = baseURL
+	}
+
+	// Merge fileConfig properties into assetConfig while preserving CDN strategy
+	if assetConfig.ProjectName == "" {
+		assetConfig.ProjectName = fileConfig.ProjectName
+	}
+	// Only override IsDirectBinary if it's not explicitly set in assetConfig
+	if fileConfig.IsDirectBinary {
+		assetConfig.IsDirectBinary = fileConfig.IsDirectBinary
+	}
+
+	// Auto-detect CDN strategy if CDN configuration is present but strategy is not CDN/Hybrid
+	if assetConfig.CDNBaseURL != "" && assetConfig.CDNPattern != "" {
+		if assetConfig.Strategy != CDNStrategy && assetConfig.Strategy != HybridStrategy {
+			assetConfig.Strategy = CDNStrategy
+		}
+	}
+
+	return &GitLabRelease{
+		ProjectId:           projectId,
+		Config:              fileConfig,
+		GitLabConfig:        config,
+		AssetMatchingConfig: assetConfig,
+	}
+}
+
+// NewGitlabReleaseWithCDNConfig creates a new GitLab release instance configured for CDN downloads
+// This is a convenience function for common CDN configurations like Helm, kubectl, etc.
+func NewGitlabReleaseWithCDNConfig(projectId string, fileConfig fileUtils.FileConfig, cdnConfig AssetMatchingConfig) *GitLabRelease {
+	// Ensure CDN strategy is set
+	cdnConfig.Strategy = CDNStrategy
+	return NewGitlabReleaseWithAssetConfig(projectId, fileConfig, cdnConfig)
 }
 
 // SetHTTPConfig allows customizing the HTTP client configuration

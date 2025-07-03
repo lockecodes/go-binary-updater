@@ -171,6 +171,10 @@ func NewGithubRelease(repository string, fileConfig fileUtils.FileConfig) *Githu
 	case "custom":
 		assetConfig.Strategy = CustomStrategy
 		assetConfig.CustomPatterns = fileConfig.CustomAssetPatterns
+	case "cdn":
+		assetConfig.Strategy = CDNStrategy
+	case "hybrid":
+		assetConfig.Strategy = HybridStrategy
 	default:
 		assetConfig.Strategy = FlexibleStrategy
 	}
@@ -180,6 +184,40 @@ func NewGithubRelease(repository string, fileConfig fileUtils.FileConfig) *Githu
 		Config:              fileConfig,
 		AssetMatchingConfig: assetConfig,
 	}
+}
+
+// NewGithubReleaseWithAssetConfig creates a new GitHub release instance with custom asset matching configuration
+// This preserves any CDN strategy settings in the provided configuration
+func NewGithubReleaseWithAssetConfig(repository string, fileConfig fileUtils.FileConfig, assetConfig AssetMatchingConfig) *GithubRelease {
+	// Merge fileConfig properties into assetConfig while preserving CDN strategy
+	if assetConfig.ProjectName == "" {
+		assetConfig.ProjectName = fileConfig.ProjectName
+	}
+	// Only override IsDirectBinary if it's not explicitly set in assetConfig
+	if fileConfig.IsDirectBinary {
+		assetConfig.IsDirectBinary = fileConfig.IsDirectBinary
+	}
+
+	// Auto-detect CDN strategy if CDN configuration is present but strategy is not CDN/Hybrid
+	if assetConfig.CDNBaseURL != "" && assetConfig.CDNPattern != "" {
+		if assetConfig.Strategy != CDNStrategy && assetConfig.Strategy != HybridStrategy {
+			assetConfig.Strategy = CDNStrategy
+		}
+	}
+
+	return &GithubRelease{
+		Repository:          repository,
+		Config:              fileConfig,
+		AssetMatchingConfig: assetConfig,
+	}
+}
+
+// NewGithubReleaseWithCDNConfig creates a new GitHub release instance configured for CDN downloads
+// This is a convenience function for common CDN configurations like Helm, kubectl, etc.
+func NewGithubReleaseWithCDNConfig(repository string, fileConfig fileUtils.FileConfig, cdnConfig AssetMatchingConfig) *GithubRelease {
+	// Ensure CDN strategy is set
+	cdnConfig.Strategy = CDNStrategy
+	return NewGithubReleaseWithAssetConfig(repository, fileConfig, cdnConfig)
 }
 
 func NewGithubReleaseWithToken(repository string, token string, fileConfig fileUtils.FileConfig) *GithubRelease {
