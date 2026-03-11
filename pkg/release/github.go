@@ -15,7 +15,8 @@ const githubApiUrl = "https://api.github.com/repos/%s/releases/latest"
 
 type GithubRelease struct {
 	Repository  string               `json:"repository"`   // Format: "owner/repo"
-	ReleaseLink string               `json:"release_link"` // Download URL for the selected asset
+	ReleaseLink string               `json:"release_link"` // Browser download URL for the selected asset
+	APILink     string               `json:"api_link"`     // API download URL for the selected asset (for private repos)
 	Version     string               `json:"version"`      // Tag name of the release
 	Config      fileUtils.FileConfig `json:"config"`       // File configuration
 	BaseURL     string               // Added to allow overriding API URL for tests
@@ -91,6 +92,7 @@ func (g *GithubRelease) GetLatestRelease() error {
 			runtime.GOOS, runtime.GOARCH, response.TagName)
 	}
 	g.ReleaseLink = releaseLink
+	g.APILink = response.GetAPILinkWithConfig(g.AssetMatchingConfig)
 
 	return nil
 }
@@ -108,7 +110,15 @@ func (g *GithubRelease) DownloadLatestRelease() error {
 	if g.Version == "" || g.ReleaseLink == "" {
 		return fmt.Errorf("could not find a valid release to download")
 	}
-	err = fileUtils.DownloadFileWithAuth(g.ReleaseLink, g.Config.SourceArchivePath, g.Token)
+
+	// For authenticated requests, use the API URL which supports private repo downloads.
+	// The API URL with Accept: application/octet-stream returns a pre-signed redirect.
+	downloadURL := g.ReleaseLink
+	if g.Token != "" && g.APILink != "" {
+		downloadURL = g.APILink
+	}
+
+	err = fileUtils.DownloadFileWithAuth(downloadURL, g.Config.SourceArchivePath, g.Token)
 	if err != nil {
 		return fmt.Errorf("error downloading latest release from GitHub: %w", err)
 	}

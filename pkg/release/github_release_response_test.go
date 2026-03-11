@@ -16,13 +16,14 @@ func TestGithubReleaseResponse_GetReleaseLink(t *testing.T) {
 		CreatedAt   time.Time
 		PublishedAt time.Time
 		Assets      []struct {
-			ID                 int    `json:"id"`
-			Name               string `json:"name"`
-			Label              string `json:"label"`
-			ContentType        string `json:"content_type"`
-			Size               int    `json:"size"`
-			DownloadCount      int    `json:"download_count"`
-			BrowserDownloadUrl string `json:"browser_download_url"`
+			ID                 int       `json:"id"`
+			Name               string    `json:"name"`
+			Label              string    `json:"label"`
+			ContentType        string    `json:"content_type"`
+			Size               int       `json:"size"`
+			DownloadCount      int       `json:"download_count"`
+			Url                string    `json:"url"`
+			BrowserDownloadUrl string    `json:"browser_download_url"`
 			CreatedAt          time.Time `json:"created_at"`
 			UpdatedAt          time.Time `json:"updated_at"`
 		}
@@ -36,13 +37,14 @@ func TestGithubReleaseResponse_GetReleaseLink(t *testing.T) {
 			name: "Test with expected Linux x86_64 asset",
 			fields: fields{
 				Assets: []struct {
-					ID                 int    `json:"id"`
-					Name               string `json:"name"`
-					Label              string `json:"label"`
-					ContentType        string `json:"content_type"`
-					Size               int    `json:"size"`
-					DownloadCount      int    `json:"download_count"`
-					BrowserDownloadUrl string `json:"browser_download_url"`
+					ID                 int       `json:"id"`
+					Name               string    `json:"name"`
+					Label              string    `json:"label"`
+					ContentType        string    `json:"content_type"`
+					Size               int       `json:"size"`
+					DownloadCount      int       `json:"download_count"`
+					Url                string    `json:"url"`
+					BrowserDownloadUrl string    `json:"browser_download_url"`
 					CreatedAt          time.Time `json:"created_at"`
 					UpdatedAt          time.Time `json:"updated_at"`
 				}{
@@ -62,13 +64,14 @@ func TestGithubReleaseResponse_GetReleaseLink(t *testing.T) {
 			name: "Test with missing asset for current platform",
 			fields: fields{
 				Assets: []struct {
-					ID                 int    `json:"id"`
-					Name               string `json:"name"`
-					Label              string `json:"label"`
-					ContentType        string `json:"content_type"`
-					Size               int    `json:"size"`
-					DownloadCount      int    `json:"download_count"`
-					BrowserDownloadUrl string `json:"browser_download_url"`
+					ID                 int       `json:"id"`
+					Name               string    `json:"name"`
+					Label              string    `json:"label"`
+					ContentType        string    `json:"content_type"`
+					Size               int       `json:"size"`
+					DownloadCount      int       `json:"download_count"`
+					Url                string    `json:"url"`
+					BrowserDownloadUrl string    `json:"browser_download_url"`
 					CreatedAt          time.Time `json:"created_at"`
 					UpdatedAt          time.Time `json:"updated_at"`
 				}{
@@ -84,13 +87,14 @@ func TestGithubReleaseResponse_GetReleaseLink(t *testing.T) {
 			name: "Test with no assets",
 			fields: fields{
 				Assets: []struct {
-					ID                 int    `json:"id"`
-					Name               string `json:"name"`
-					Label              string `json:"label"`
-					ContentType        string `json:"content_type"`
-					Size               int    `json:"size"`
-					DownloadCount      int    `json:"download_count"`
-					BrowserDownloadUrl string `json:"browser_download_url"`
+					ID                 int       `json:"id"`
+					Name               string    `json:"name"`
+					Label              string    `json:"label"`
+					ContentType        string    `json:"content_type"`
+					Size               int       `json:"size"`
+					DownloadCount      int       `json:"download_count"`
+					Url                string    `json:"url"`
+					BrowserDownloadUrl string    `json:"browser_download_url"`
 					CreatedAt          time.Time `json:"created_at"`
 					UpdatedAt          time.Time `json:"updated_at"`
 				}{},
@@ -101,13 +105,14 @@ func TestGithubReleaseResponse_GetReleaseLink(t *testing.T) {
 			name: "Test with multiple matching assets (should return first match)",
 			fields: fields{
 				Assets: []struct {
-					ID                 int    `json:"id"`
-					Name               string `json:"name"`
-					Label              string `json:"label"`
-					ContentType        string `json:"content_type"`
-					Size               int    `json:"size"`
-					DownloadCount      int    `json:"download_count"`
-					BrowserDownloadUrl string `json:"browser_download_url"`
+					ID                 int       `json:"id"`
+					Name               string    `json:"name"`
+					Label              string    `json:"label"`
+					ContentType        string    `json:"content_type"`
+					Size               int       `json:"size"`
+					DownloadCount      int       `json:"download_count"`
+					Url                string    `json:"url"`
+					BrowserDownloadUrl string    `json:"browser_download_url"`
 					CreatedAt          time.Time `json:"created_at"`
 					UpdatedAt          time.Time `json:"updated_at"`
 				}{

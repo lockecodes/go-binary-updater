@@ -19,13 +19,14 @@ type GithubReleaseResponse struct {
 	CreatedAt   time.Time `json:"created_at"`
 	PublishedAt time.Time `json:"published_at"`
 	Assets      []struct {
-		ID                 int    `json:"id"`
-		Name               string `json:"name"`
-		Label              string `json:"label"`
-		ContentType        string `json:"content_type"`
-		Size               int    `json:"size"`
-		DownloadCount      int    `json:"download_count"`
-		BrowserDownloadUrl string `json:"browser_download_url"`
+		ID                 int       `json:"id"`
+		Name               string    `json:"name"`
+		Label              string    `json:"label"`
+		ContentType        string    `json:"content_type"`
+		Size               int       `json:"size"`
+		DownloadCount      int       `json:"download_count"`
+		Url                string    `json:"url"`
+		BrowserDownloadUrl string    `json:"browser_download_url"`
 		CreatedAt          time.Time `json:"created_at"`
 		UpdatedAt          time.Time `json:"updated_at"`
 	} `json:"assets"`
@@ -36,13 +37,27 @@ func (g *GithubReleaseResponse) GetReleaseLink() string {
 }
 
 func (g *GithubReleaseResponse) GetReleaseLinkWithConfig(config AssetMatchingConfig) string {
+	browser, _ := g.getMatchedAssetURLs(config)
+	return browser
+}
+
+// GetAPILinkWithConfig returns the GitHub API URL for the matched asset.
+// Use this with Accept: application/octet-stream for authenticated downloads from private repos.
+func (g *GithubReleaseResponse) GetAPILinkWithConfig(config AssetMatchingConfig) string {
+	_, api := g.getMatchedAssetURLs(config)
+	return api
+}
+
+func (g *GithubReleaseResponse) getMatchedAssetURLs(config AssetMatchingConfig) (browserURL, apiURL string) {
 	// Extract asset names
 	assetNames := make([]string, len(g.Assets))
-	assetMap := make(map[string]string)
+	browserMap := make(map[string]string)
+	apiMap := make(map[string]string)
 
 	for i, asset := range g.Assets {
 		assetNames[i] = asset.Name
-		assetMap[asset.Name] = asset.BrowserDownloadUrl
+		browserMap[asset.Name] = asset.BrowserDownloadUrl
+		apiMap[asset.Name] = asset.Url
 	}
 
 	// Use asset matcher to find the best match
@@ -50,10 +65,10 @@ func (g *GithubReleaseResponse) GetReleaseLinkWithConfig(config AssetMatchingCon
 	bestMatch, err := matcher.FindBestMatch(assetNames)
 	if err != nil {
 		// Fallback to legacy matching for backward compatibility
-		return g.getLegacyReleaseLink()
+		return g.getLegacyReleaseLink(), ""
 	}
 
-	return assetMap[bestMatch]
+	return browserMap[bestMatch], apiMap[bestMatch]
 }
 
 // getLegacyReleaseLink provides backward compatibility with the old matching logic
