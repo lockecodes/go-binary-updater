@@ -108,7 +108,7 @@ func (g *GithubRelease) DownloadLatestRelease() error {
 	if g.Version == "" || g.ReleaseLink == "" {
 		return fmt.Errorf("could not find a valid release to download")
 	}
-	err = fileUtils.DownloadFile(g.ReleaseLink, g.Config.SourceArchivePath)
+	err = fileUtils.DownloadFileWithAuth(g.ReleaseLink, g.Config.SourceArchivePath, g.Token)
 	if err != nil {
 		return fmt.Errorf("error downloading latest release from GitHub: %w", err)
 	}

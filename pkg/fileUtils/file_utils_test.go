@@ -3,6 +3,8 @@ package fileUtils
 import (
 	"archive/tar"
 	"compress/gzip"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path"
 	"path/filepath"
@@ -188,6 +190,63 @@ func TestDownloadFile(t *testing.T) {
 		})
 	}
 	_ = os.Remove("test.txt")
+}
+
+func TestDownloadFileWithAuth(t *testing.T) {
+	t.Run("TokenSentAsBearer", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth := r.Header.Get("Authorization")
+			if auth != "Bearer test-token" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			w.Write([]byte("binary-content"))
+		}))
+		defer server.Close()
+
+		dest := filepath.Join(t.TempDir(), "binary")
+		err := DownloadFileWithAuth(server.URL, dest, "test-token")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		data, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatalf("reading downloaded file: %v", err)
+		}
+		if string(data) != "binary-content" {
+			t.Errorf("got %q, want %q", string(data), "binary-content")
+		}
+	})
+
+	t.Run("NoTokenStillWorks", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "" {
+				t.Error("should not send Authorization header when token is empty")
+			}
+			w.Write([]byte("public-content"))
+		}))
+		defer server.Close()
+
+		dest := filepath.Join(t.TempDir(), "binary")
+		err := DownloadFileWithAuth(server.URL, dest, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("UnauthorizedReturnsError", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer server.Close()
+
+		dest := filepath.Join(t.TempDir(), "binary")
+		err := DownloadFileWithAuth(server.URL, dest, "bad-token")
+		if err == nil {
+			t.Fatal("expected error for 401 response")
+		}
+	})
 }
 
 func createTestArchive(filePath, binaryName string) error {

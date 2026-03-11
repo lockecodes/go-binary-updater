@@ -265,7 +265,24 @@ func TryUpdateSymlink(target, symlinkPath string) bool {
 
 // DownloadFile downloads a file from the given URL to the specified path
 func DownloadFile(link string, destination string) error {
-	resp, err := http.Get(link)
+	return DownloadFileWithAuth(link, destination, "")
+}
+
+// DownloadFileWithAuth downloads a file from the given URL to the specified path,
+// optionally using a Bearer token for authentication (required for private repos).
+func DownloadFileWithAuth(link string, destination string, token string) error {
+	req, err := http.NewRequest("GET", link, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/octet-stream")
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download file: %w", err)
 	}
